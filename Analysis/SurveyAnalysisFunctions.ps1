@@ -6,7 +6,7 @@ one line of CSV.  Additionally, if not a private key it requests VTReports at 4 
 per the public key speed limit. 
 
 Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
-License: Apache License 2.0 (unless otherwise noted)
+License: BSD 3-Clause
 Required Dependencies: VirusTotal.psm1
 Optional Dependencies: None
 
@@ -36,7 +36,7 @@ function Initialize-HuntReputation {
 	Param([Switch]$Reload)
 # Load Reputation Data into global lookup hashtables 
 	
-	function Import-FileReputation {
+	function _Import-FileReputation {
 		Param(
 			[String]$csvpath
 		)
@@ -101,7 +101,7 @@ function Initialize-HuntReputation {
 		return $hashlist
 	}
 		
-	function Import-NIST {
+	function _Import-NIST {
 	Param(
 		[Parameter(Position=0, Mandatory=$True)]
 		[ValidateScript({ Test-Path $_ -PathType Leaf -Include *.txt })]	
@@ -143,7 +143,7 @@ function Initialize-HuntReputation {
 		return $hashlist
 	}
 
-	function Import-URLReputation {
+	function _Import-URLReputation {
 		Param(
 			[String]$csvpath
 		)
@@ -184,21 +184,21 @@ function Initialize-HuntReputation {
 	if (!$Global:NIST) {
 		$Message = "Loading NIST Database - {0:N2} MB" -f ((Get-ItemProperty -path $NistPath).length/1000000)
 		Write-Verbose $Message 
-		$Global:NIST = Import-NIST $NISTPath
+		$Global:NIST = _Import-NIST $NISTPath
 	} 
 	if ( ($Reload) -OR (!$Global:FileReputation) ) {
 		$Message = "Loading FileReputation - {0:N2} MB" -f ((Get-ItemProperty -path $FileReputationPath).length/1000000)
 		Write-Verbose $Message 
-		$Global:FileReputation = Import-FileReputation $FileReputationPath
+		$Global:FileReputation = _Import-FileReputation $FileReputationPath
 	}
 	if ( ($Reload) -OR (!$Global:URLReputation) ) {
 		$Message = "Loading URLReputation - {0:N2} MB" -f ((Get-ItemProperty -path $URLReputationPath).length/1000000)
 		Write-Verbose $Message 
-		$Global:URLReputation = Import-URLReputation $URLReputationPath
+		$Global:URLReputation = _Import-URLReputation $URLReputationPath
 	}
 	<#
 	if (!$Global:PipesReputation) {
-		$Global:PipesReputation = Import-URLReputation $PipesReputationPath
+		$Global:PipesReputation = _Import-URLReputation $PipesReputationPath
 	}	
 	#>
 	return 
@@ -210,7 +210,7 @@ function Update-HuntObject {
 	Used to analyze output from the psHunt Survey (survey.ps1) HostObject.
 
 	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
-	License: Apache License 2.0
+	License: BSD 3-Clause
 	Required Dependencies: 	SurveyAnalysis.ps1
 							VirusTotal.psm1
 	Optional Dependencies: 	None
@@ -433,7 +433,7 @@ function Get-HuntVTStatus {
 	per the public key limit. 
 
 	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
-	License: Apache License 2.0
+	License: BSD 3-Clause
 	Required Dependencies: VirusTotal.psm1
 	Optional Dependencies: None
 
@@ -445,7 +445,7 @@ function Get-HuntVTStatus {
 
 	.PARAMETER APIKey
 
-	VirusTotal API Key
+	VirusTotal API Key.  Fill this in with your key as a default if you don't want to keep putting it in the commandline.
 
 	.PARAMETER PrivateKey
 
@@ -464,7 +464,7 @@ function Get-HuntVTStatus {
 		
 		[string]$FileReputationPath="$PSScriptRoot\..\ReputationData\Files.csv",
 		
-		[String]$APIKey = '',
+		[String]$APIKey = 'cb83aa5543b1999d955a7e78bff6b3459a2105f121cc495637c4e70915fab38c',
 		
 		[Switch]$PrivateKey
 	)
@@ -592,7 +592,7 @@ function Group-HuntObjects {
 	Group psHunt Survey (survey.ps1) HostObjects into a single Object with unique processes, modules, drivers, etc.  
 	
 	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
-	License: Apache License 2.0
+	License: BSD 3-Clause
 	Required Dependencies: 	SurveyAnalysis.ps1
 							VirusTotal.psm1
 	Optional Dependencies: 	None
@@ -622,15 +622,17 @@ Param(
 	[string]$DATADIR="$pwd\DATADIR",
 	
 	[Parameter(Mandatory=$False)]
-	[String]$OutFile="$pwd\GroupedObject.xml"
+	[String]$OutFile="GroupedObject"
 )
 		
 	BEGIN {
+        
+        $ErrorActionPreference = "Stop"
 
 		$version = 0.7 # version needs to match the survey & hostobject version
 		$SurveyFileName = "HostSurvey.xml"
 		$HostObjectType = 'psHunt_HostObject'
-		$datestamp = get-date -uformat "%D"
+		$datestamp = get-date -format "yyyyMMdd"
 		$Hashtype = "SHA1"
 		$NullHash = "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"
 		
@@ -643,14 +645,17 @@ Param(
 			"Notes"
 		)
 
+        if ( -NOT (Test-Path $DATADIR)) {
+            $null = mkdir $DATADIR
+        }
 		
 		# Creating BaseObject arrays
 		$ProcessList = @()	
 		$ModuleList = @()
-		$DriversList = @()
+		$DriverList = @()
 		$AutorunList = @()
-		$MemoryInjects = @()
-		$Accounts = @()
+		$MemoryInjectList = @()
+		$AccountList = @()
 		$Connections = @()
 		$InstalledPrograms = @()
 		$OSHashList = @{}
@@ -668,8 +673,12 @@ Param(
 			$n += 1
 			Write-Verbose "($n of $nh): Parsing $Path into GroupedObject"	
 			Write-Progress -Activity "Grouping HostObjects" -percentcomplete "-1" -status "Processing HostObject $n of $nh"
-			$HostObject = Import-Clixml $Path
-			
+			try { 
+                $HostObject = Import-Clixml $Path
+	        } catch {
+                Write-Error "Error: Could not import HostObject: $Path"
+                continue
+            }		
 			# Sanity Checks
 			if ($HostObject.Version -ne $version) {
 				Write-Error "$_ (Version $HostObject.Version) is not compatible with this function (should be version $version). Skipping HostObject."
@@ -680,14 +689,18 @@ Param(
 				continue 			
 			}
 			if (!$HostObject.Processed) { 
-				Write-Error "$_ has not been processed. Skipping."
-				continue 			
+				Write-Warning "$_ has not been processed. Processing now."
+                Update-HuntObject $Path -Reprocess
+                $HostObject = Import-Clixml $Path
 			}
 			
 			# HostList
-			$HostList += $HostObject.HostName
+            if ($HostList -notcontains $HostObject.HostName) {
+                $HostList += $HostObject.HostName
+            }
 			
 			# Processes
+            Write-Verbose "Normalizing ProcessList from $($HostObject.HostName)"
 			Foreach ($item in $HostObject.ProcessList) {
 				$hash = $item.SHA1
 				if (($hash -eq $null) -OR ($hash -eq "") -OR ($hash -eq $NullHash) ) {
@@ -695,13 +708,15 @@ Param(
 				}
 				if ($ProcessList.SHA1 -contains $hash) {
 					$ProcessList | where { $_.SHA1 -eq $hash} | % {
-						Write-Verbose "$Hash already exists - adding occurance to $_"
-						$_.Occurances +=1 
-						$_.Hosts += $HostObject.HostName
+						Write-Verbose "$($_.Name) ($Hash) already exists - adding to occurances" 
+                        $_.Occurances +=1 
+                        if ($_.Hosts -notcontains $HostObject.Hostname) { 
+                            $_.Hosts += $HostObject.HostName 
+                        }
 						continue
 					}
 				} else {
-					Write-Verbose "Adding $Hash from $_"
+					Write-Verbose "Adding $Hash from $_ to Normalized ProcessList"
 					$item | Add-Member -type NoteProperty -name Hosts -value @($HostObject.HostName) -Force
 					$item | Add-Member -type NoteProperty -name Occurances -value 1 -Force
 					$ProcessList += $item					
@@ -717,8 +732,10 @@ Param(
 				
 				if ($ModuleList.SHA1 -contains $hash) {
 					$ModuleList | where { $_.SHA1 -eq $hash} | % {
-						$_.Occurances +=1 
-						$_.Hosts += $HostObject.HostName
+						$_.Occurances += 1 
+                        if ($_.Hosts -notcontains $HostObject.Hostname) { 
+                            $_.Hosts += $HostObject.HostName 
+                        }
 						continue
 					}
 				} else {
@@ -728,6 +745,7 @@ Param(
 				}
 			}
 			
+            # BROKE
 			#Drivers
 			Foreach ($item in $HostObject.DriverList) {
 				$hash = $item.SHA1
@@ -738,7 +756,9 @@ Param(
 				if ($DriverList.SHA1 -contains $hash) {
 					$DriverList | where { $_.SHA1 -eq $hash} | % {
 						$_.Occurances +=1 
-						$_.Hosts += $HostObject.HostName
+                        if ($_.Hosts -notcontains $HostObject.Hostname) { 
+                            $_.Hosts += $HostObject.HostName 
+                        }
 						continue
 					}
 				} else {
@@ -749,7 +769,7 @@ Param(
 			}
 
 			#Autoruns
-			Foreach ($item in $HostObject.AutorunList) {
+			Foreach ($item in $HostObject.Autoruns) {
 				$hash = $item.SHA1
 				if (($hash -eq $null) -OR ($hash -eq "") -OR ($hash -eq $NullHash) ) {
 					continue
@@ -758,7 +778,9 @@ Param(
 				if ($AutorunList.SHA1 -contains $hash) {
 					$AutorunList | where { $_.SHA1 -eq $hash} | % {
 						$_.Occurances +=1 
-						$_.Hosts += $HostObject.HostName
+                        if ($_.Hosts -notcontains $HostObject.Hostname) { 
+                            $_.Hosts += $HostObject.HostName 
+                        }
 						continue
 					}
 				} else {
@@ -770,11 +792,10 @@ Param(
 
 			#InstalledApps
 			Foreach ($item in $HostObject.InstalledApps) {
-				$App = $_.DisplayName
+				$App = $item.DisplayName
 				if (($App -eq $null) -OR ($App -eq "")) {
 					continue
 				}
-				
 				if ($InstalledPrograms.Name -contains $App) {
 					$InstalledPrograms | where { $_ -eq $App} | % {
 						$_.Occurances +=1
@@ -783,6 +804,8 @@ Param(
 				} else {
 					$newApp = New-Object PSObject -Property @{
 						Name			= $App
+                        Publisher       = $item.Publisher
+                        Version         = $item.DisplayVersion
 						Occurances		= 1
 					}
 					$InstalledPrograms += $newApp				
@@ -790,7 +813,7 @@ Param(
 			}
 			
 			# Memory Injects
-			$HostObject.MemoryInjects | where { $_.PE -eq $true } | % {
+			$HostObject.InjectedModules | where { $_.PE -eq $true } | % {
 				$_ | Add-Member -type NoteProperty -name HostName -value $HostObject.HostName -Force
 				$MemoryInjects += $_
 			}
@@ -800,25 +823,43 @@ Param(
 				$Connections += $_
 			}
 			
-			#$Accounts = @()
+		
 			# Add unique account logins
-			<#
-			foreach ($account in ($HostObject.Accounts.LoginHistory | Select Caption)) { 
-				if (($account.Caption -ne "") -AND ($account.Caption -notmatch "NT AUTHORITY")) {
-					$account | Add-Member -type NoteProperty -name Host -value $HostObject.HostName
-					$Accounts += $account
+			foreach ($account in $HostObject.Accounts.LoginHistory) { 
+				if (($account.Name -ne "") -AND ($account.Name -notmatch "NT AUTHORITY") -AND ($account.Privileges -match "Administrator") ) {
+                    if ($AccountList.UserSID -contains $account.UserSID) {
+                        
+                        $AccountList | where { $_.UserSID -eq $account.UserSID } | % {
+                            if ($_.Hosts -notcontains $HostObject.Hostname) { 
+                                $_.Hosts += $HostObject.HostName
+                                $_.Occurances += 1
+                            }
+						}
+                    } else {
+                        $newAccount = New-Object PSObject -Property @{
+						    User			= $account.Name
+                            UserSID         = $account.UserSID
+						    Occurances		= 1
+                            Hosts           = @($HostObject.HostName)
+                        }
+                        $AccountList += $newAccount
+                    }
+
 				}
 			}
-			#>
-			
 			
 			# Add OS Information
 			try {
-				$OSHashList[$HostObject.OS] += 1 
+
+                if ($OSHashList -notcontains $HostObject.HostInfo.OS) {
+                    $OSHashList.Add($HostObject.HostInfo.OS, 1)
+                } else {
+                    $OSHashList[$HostObject.HostInfo.OS] += 1
+                }
 			} catch {
-			
+			    Write-Debug "Oh shiza OSHASHLIST"
 			}
-			
+
 			# Add Scan time stats
 			$ScanMetaData += @{
 				Hostname 	= $HostObject.HostName
@@ -828,27 +869,29 @@ Param(
 	}	
 
 	END {
+        
 		# Build GroupedObject 
 		$GroupedObject = New-Object PSObject -Property @{
 			Opfolder			= $DATADIR
 			Date				= (Get-Date)
-			Hosts				= ($HostList | Sort-Object -unique)
+			Hosts				= $HostList
 			OSStats				= $OSHashList
 			ProcessList			= $ProcessList
 			ModuleList			= $ModuleList
-			DriverList			= $DriversList
+			DriverList			= $DriverList
 			Connections			= $Connections
 			InstalledPrograms	= $InstalledPrograms
-			Accounts			= $Accounts
+			Accounts			= $AccountList
 			AutorunList			= $AutorunList
 			MemoryInjects		= $MemoryInjects
 			ScanMetaData		= $ScanMetaData
 		}
 		# Export GroupedObject
-		$GroupObject | Export-CLIXML $OutFile -encoding 'UTF8' -Force
+        [String]$ExportFile = "$DATADIR\$OutFile-$datestamp.xml"
+		$GroupedObject | Export-CLIXML $ExportFile -encoding 'UTF8' -Force
 		Write-Progress -Activity "Grouping HostObjects" -percentcomplete "-1" -status "$n HostObjects grouped" -Completed
-		Write-Verbose "$n HostObjects grouped in $timetaken seconds"
-		#return $GroupedObject
+		Write-Verbose "$n HostObjects grouped in $timetaken seconds and exported to $ExportFile"
+		return $GroupedObject
 	}
 }
 
@@ -857,3 +900,9 @@ Param(
 #region Internal  Helper Functions
 
 #endregion
+
+
+# Test
+
+gci C:\Users\Chris\Documents\GitHub\PSHunt\Surveys -recurse -Include *.xml | Group-HuntObjects -debug -verbose
+
