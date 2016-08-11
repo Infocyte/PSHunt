@@ -1,0 +1,6 @@
+$Targets = 'Win7','Win2k8R2','win7-32-1'
+$cred = Get-Credential infocyte
+
+
+Set-Item WSMan:\localhost\Client\TrustedHosts  –Value "Ip address"
+Set-Item WSMan:\localhost\Client\TrustedHosts  –Value *

@@ -1,0 +1,1 @@
+dsquery * "OU=Dallas Office,OU=USA,DC=Infocyte,DC=COM" -filter "(objectClass=Computer)" -attr cn -limit 20000 -l >> targets.txt
