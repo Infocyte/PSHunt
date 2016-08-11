@@ -462,9 +462,13 @@ function Get-HuntVTStatus {
 		[Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true)]
 		[String[]]$Hashes,
 		
+		[Parameter(Mandatory=$true)]
+		[ValidateNotNullorEmpty()]
 		[string]$FileReputationPath="$PSScriptRoot\..\ReputationData\Files.csv",
 		
-		[String]$APIKey = 'cb83aa5543b1999d955a7e78bff6b3459a2105f121cc495637c4e70915fab38c',
+		[Parameter(Mandatory=$true)]
+		[ValidateNotNullorEmpty()]
+		[String]$APIKey,
 		
 		[Switch]$PrivateKey
 	)
