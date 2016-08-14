@@ -830,12 +830,3 @@ New-Struct. :P
 #endregion Helper Functions
 
 
-$Targets = 'Win7','Win2k8R2','win7-32-1'
-$Script = "C:\Windows\Temp\test.ps1"
-# $TaskToRun = "Powershell.exe -ExecutionPolicy bypass -NoProfile -NonInteractive -File $Script"
-$TaskToRun = "cmd.exe /c PowerShell.exe -Exec ByPass -NonInteractive -File $Script"
-
-
-# $cred = Get-Credential infocyte
-
-# $Targets | % { Invoke-PsExec -ComputerName $_ -Credential $cred -Command $TaskToRun -Verbose }

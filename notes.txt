@@ -4,3 +4,33 @@ $cred = Get-Credential infocyte
 
 Set-Item WSMan:\localhost\Client\TrustedHosts  –Value "Ip address"
 Set-Item WSMan:\localhost\Client\TrustedHosts  –Value *
+
+
+
+# -------------------------------------------------------------
+# Testing
+
+
+# schtasks /create /ru system /tn dcc_task /tr "powershell -executionpolicy bypass C:\windows\temp\Survey.ps1" /sc once /st 23:59 /F
+# schtasks /run /tn pshunttask
+# Schtasks /create /tn "pshunttask" /sc daily /st 08:00 /tr "PowerShell -command {Get-childitem -path c:\users\username\desktop | out-file C:\yay.txt}"
+
+# $Targets = 'Win7','Win2k8R2','win7-32-1'
+# $Script = "C:\Windows\Temp\test.ps1"
+# $TaskToRun = "cmd.exe /c PowerShell.exe -Exec ByPass -NonInteractive -File $Script"
+# $cred = Get-Credential infocyte
+# $Targets | % { Invoke-PSExec -ComputerName $_ -Credential $cred -Command $TaskToRun -Verbose }
+# $Targets | % { Start-RemoteProcess -ComputerName $_ -PSScript $task -Credential $cred -ExecutionType PSexec -Debug
+
+# $TaskToRun = 'C:\Users\Chris\Documents\GitHub\PSHunt\Surveys\test.ps1'
+# $Targets | % { Invoke-HuntSurvey -ComputerName $_ -Credential $cred -ScriptPath $TaskToRun -Verbose }
+
+# $Targets = 'Win7','Win2k8R2','win7-32-1'
+# $Script = "C:\Windows\Temp\test.ps1"
+# $TaskToRun = "Powershell.exe -ExecutionPolicy bypass -NoProfile -NonInteractive -File $Script"
+# $TaskToRun = "cmd.exe /c PowerShell.exe -Exec ByPass -NonInteractive -File $Script"
+
+
+# $cred = Get-Credential infocyte
+
+# $Targets | % { Invoke-PsExec -ComputerName $_ -Credential $cred -Command $TaskToRun -Verbose }

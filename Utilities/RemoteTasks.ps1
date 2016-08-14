@@ -61,11 +61,12 @@ function Invoke-HuntSurvey {
 	[CmdletBinding()]
 	Param(	
 			[Parameter(	Position=0, 
-						Mandatory=$True, 
+						Mandatory=$false, 
 						ValueFromPipeline=$True,
 						HelpMessage='Hostname, IP Address, or FQDN')]
+			[ValidateNotNullOrEmpty()]
 			[String[]]
-			$ComputerName,
+			$ComputerName="$env:COMPUTERNAME",
 
 			[parameter(	Position=1, 
 						Mandatory=$false,
@@ -111,12 +112,18 @@ function Invoke-HuntSurvey {
 		if (!(Test-Path $PSScriptRoot\..\log)) { mkdir $PSScriptRoot\..\log }
 		$LogPath = "$(Resolve-Path $PSScriptRoot\..\log\)\HuntLog.log"
 		
-		Write-Verbose "(get-date): Beginning New Scan with Task: $ScriptPath via Execution Type $ExecutionType"
 		$n = 0
 	}
 
 	PROCESS {
+
+        $HostCount = $ComputerName.count
+        $datetime = (Get-Date).ToString()
+        Write-Verbose "STARTING NEW SURVEY ($HostCount systems) - $datetime - Using Task $ScriptPath via Execution Type $ExecutionType"
+
 		foreach ($Target in $ComputerName) {
+			if ( ($Target -eq $null) -OR ($Target -eq "") ) { continue }
+			
 			$n += 1
 			
 			#  Making local output directory
@@ -127,27 +134,25 @@ function Invoke-HuntSurvey {
 			$RemotePath = 'C:\Windows\temp'
 			$RemoteScript = "$RemotePath\$RemoteFilename"
 			$RemoteUNCPath = "\\$Target\C$\Windows\temp"
-						
 			
-			# Print some feedback to screen
-			$Msg = "Executing $ScriptPath on $Target via $ExecutionType"
-			if ($PSBoundParameters['Verbose']) { $Msg += "as $RemoteUNCPath\$RemoteFilename" }
-			Write-Verbose "($n): $msg" 
-			
-			
+			# Kick this thing off
+			$Msg = "Executing $ScriptPath on $Target via $ExecutionType as $RemoteUNCPath\$RemoteFilename"
+            Write-Log $Target $LogPath "Executing $ScriptPath on $Target via $ExecutionType as $RemoteUNCPath\$RemoteFilename." $n
+
+			Write-Progress -activity "Deploying Surveys" -status "Percent Complete: " -PercentComplete (($n / $HostCount)  * 100) -CurrentOperation "($n of $HostCount): Surveying $Target"
+
 			#region TEST =====================
 			
 			Switch ($ExecutionType) {
 				'Auto' {
 			
-					Write-Verbose '($n): Auto - Scanning all relevant ports to determine execution options'
 					$Ports = 135,139,445,1025,5985,49152
-					Write-Debug "($n): Scanning TCP ports: $Ports"
+					Write-Verbose "($n): Auto - Scanning all relevant ports to determine execution options"
 					
 					$TestResults = Test-TCPPorts -Target $Target -Ports $Ports
 					
-					Write-Verbose '($n): Determining appropriate execution method based on scan results'
-					Write-Debug "$TestResults"
+					#Write-Debug "$TestResults"
+
 					if ($TestResults.TCP5985) {
 						$ExecutionType = 'PSRemoting'
 					}
@@ -159,19 +164,17 @@ function Invoke-HuntSurvey {
 						#$ExecutionType = 'Schtasks'
 					}
 					else {
-						Write-Log $Target $LogPath "$Target did not respond to Auto Test-TCPPorts scan! Host is unavailable." $n
+						Write-Log $Target $LogPath "ERROR: Auto check failed.  $Target did not respond to any port scans! Host may be unavailable." $n
 						continue						
 					}
-					Write-Log $Target $LogPath "Setting Execution to $ExecutionType" $n
+					Write-Log $Target $LogPath "Setting ExecutionType (Auto) to $ExecutionType" $n
 					
 				}
 				'PSRemoting' {
 					# TEST: PSRemoting Ports
-					Write-Verbose 'Performing PSRemoting connection tests to TCP 5985 or 5986'
-					if (Test-TCPPort $Target 5985) {
-						Write-Debug "($n): Test-TCPPort scan of Port 5985 or 5986 was successful!"
-					} else {
-						Write-Log $Target $LogPath "ERROR: $Target connectivity test failed (TCP port 5985 or 5986)!" $n
+					Write-Verbose 'Performing PSRemoting connection tests to TCP 5985'
+					if (!(Test-TCPPort $Target 5985)) {
+						Write-Log $Target $LogPath "ERROR: PSRemoting Check failed. Could not reach $Target on TCP port 5985!" $n
 						continue
 					}
 				
@@ -179,17 +182,17 @@ function Invoke-HuntSurvey {
 				'WMI' {
 					# TEST: WMI Ports
 					if ( (Test-TCPPort $Target 445) -OR (Test-TCPPort $Target 139) ) {
-						Write-Debug "($n): Test-TCPPort scan of Port 445 or 139 was successful!"
+						#Write-Debug "($n): Test-TCPPort scan of Port 445 or 139 was successful!"
 					
 						if ( (Test-TCPPort $Target 49152) -OR (Test-TCPPort $Target 1025) ) {
 						
 							Write-Debug "($n): Test-TCPPort scan of Dynamic Port 49152 or 1025 was successful!"
 						
 						} else {	
-							Write-Log $Target $LogPath 'ERROR: Dynamic Ports (49152+/1025+) not responding, WMI will probably fail' $n
+							Write-Log $Target $LogPath 'ERROR: Dynamic Ports (49152+/1025+) not responding, WMI might fail if it cannot reach dynamic ports' $n
 						}	
 					} else {
-						Write-Log $Target $LogPath "ERROR: $Target connectivity test failed (TCP port 445 or 139)!" $n
+						Write-Log $Target $LogPath "ERROR: WMI check failed.  Could not reach $Target on TCP port 445 or 139!" $n
 						continue
 					}
 				}
@@ -197,19 +200,19 @@ function Invoke-HuntSurvey {
 					# TEST: Schtasks Ports
 					if ( (Test-TCPPort $Target 445) -OR (Test-TCPPort $Target 139) ) {
 					
-						Write-Debug "($n): Test-TCPPort scan of Port 445 or 139 was successful"	
+						# Write-Debug "($n): Test-TCPPort scan of Port 445 or 139 was successful"	
 					
 					} else {
-						Write-Log $Target $LogPath "$Target connectivity test failed (TCP port 445 or 139)!" $n
+						Write-Log $Target $LogPath "ERROR: Schtasks check failed. Could not reach $Target on TCP port 445 or 139!" $n
 						continue
 					}
 				}
-				'PSExec' { 
-					# TEST: PSExec Ports
+				'PsExec' { 
+					# TEST: PsExec Ports
 					if ( (Test-TCPPort $Target 445) -OR (Test-TCPPort $Target 139) ) {
 						Write-Debug "($n): Test-TCPPort scan of Port 445 or 139 was successful"
 					} else {
-						Write-Log $Target $LogPath "ERROR: $Target connectivity test failed (TCP port 445 or 139)!" $n
+						Write-Log $Target $LogPath "ERROR: PsExec check failed. Could not reach $Target on TCP port 445 or 139!" $n
 						continue
 					}					
 				}
@@ -219,24 +222,21 @@ function Invoke-HuntSurvey {
 			
 			#region TRANSPORT ===================
 			
-			if ( ($ExecutionType -eq 'WMI') -OR ($ExecutionType -eq 'Schtasks') -OR ($ExecutionType -eq 'PSExec') ) {
-				try {
-					# Sending scripts to target	using SMB transport for WMI and Schtasks execution
-					Write-Verbose "Copying $ScriptPath to: $RemoteUNCPath\$RemoteFilename"
-					$RemoteDisk = New-PSDrive -Name "RD" -PSProvider "FileSystem" -Root $RemoteUNCPath\ -Credential $credential
-					$null = Copy-Item -Path $ScriptPath -Destination RD:\$RemoteFilename -Force
-					
-				} catch [System.UnauthorizedAccessException] {
-					# Access Denied
-					Write-Log $Target $LogPath "ERROR: Unauthorized Access on transfer of $ScriptPath to $RemoteUNCPath\$RemoteFilename." $n
-					continue
-				} catch {
-					Write-Log $Target $LogPath "ERROR: Failed to transfer $ScriptPath to $RemoteUNCPath\$RemoteFilename.  Error Message: $_.Exception.Message" $n
-					continue
-				} finally {
-					Remove-PSDrive -name RD -PSProvider FileSystem
-				}
+			try {
+				# Sending scripts to target	using SMB transport for WMI and Schtasks execution
+				Write-Verbose "Copying $ScriptPath to: $RemoteUNCPath\$RemoteFilename"
+				$RemoteDisk = New-PSDrive -Name "RD" -PSProvider "FileSystem" -Root $RemoteUNCPath\ -Credential $credential
+				$null = Copy-Item -Path $ScriptPath -Destination RD:\$RemoteFilename -Force
 				
+			} catch [System.UnauthorizedAccessException] {
+				# Access Denied
+				Write-Log $Target $LogPath "ERROR: Unauthorized Access on transfer of $ScriptPath to $RemoteUNCPath\$RemoteFilename." $n
+				continue
+			} catch {
+				Write-Log $Target $LogPath "ERROR: Failed to transfer $ScriptPath to $RemoteUNCPath\$RemoteFilename.  Error Message: $($_.Exception.Message)" $n
+				continue
+			} finally {
+				Remove-PSDrive -name RD -PSProvider FileSystem -ea 0
 			}
 			
 			#endregion TRANSPORT
@@ -246,25 +246,24 @@ function Invoke-HuntSurvey {
 			
 			Switch ($ExecutionType) {
 				'WMI' { 		
-					Write-Verbose "Executing WMI Process Call Create on $RemotePath\$RemoteFilename"
+					Write-Verbose "Executing $RemotePath\$RemoteFilename using WMI"
 					$Result = Start-RemoteProcess -ComputerName $Target -PSScript $RemoteScript -ExecutionType WMI -Credential $Credential
 
-					#If WMI fails, try scheduled task
-					if ($result -eq $False) {
+					#If WMI fails, try PsExec (auto)
+					if (($result -eq $False) -AND ($ExecutionType -eq "Auto") ) {
 						# WMI Fallback Method: Scheduled Task
-						Write-Verbose "($n): FALLBACK: WMI Failed, Falling back to scheduled task"
-						$Result = Start-RemoteProcess -ComputerName $Target -PSScript $RemoteScript -TaskName $TaskName -ExecutionType Schtasks -Credential $Credential 
-						# Verbose output
-						if ($PSBoundParameters['verbose']) { Start-Sleep 0.5; schtasks /query /s $Target /tn $TaskName /v }
-						write-verbose "to query whether done type: schtasks /query /s $Target /tn $TaskName /v"	
+						Write-Verbose "($n): FALLBACK: WMI Failed, Falling back to PsExec"
+						$Result = Start-RemoteProcess -ComputerName $Target -PSScript $RemoteScript -TaskName $TaskName -ExecutionType PsExec -Credential $Credential 	
+                    } elseif ($result -eq $False) {
+                        
 					}
 				}
 				'Schtasks' { 			
 					Write-Verbose "Executing $RemotePath\$RemoteFilename with Schtasks"
-					$Result = Start-RemoteProcess -ComputerName $Target -PSScript $RemoteScript -TaskName $TaskName -ExecutionType Schtasks -Credential $Credential 	
+					$Result = Start-RemoteProcess -ComputerName $Target -PSScript $RemoteScript -ExecutionType Schtasks -TaskName $TaskName -Credential $Credential 	
 					# Verbose output
-					if ($PSBoundParameters['verbose']) { Start-Sleep 0.5; schtasks /query /s $Target /tn $TaskName /v }
-					write-verbose "to query whether done type: schtasks /query /s $Target /tn $TaskName /v"						
+					#if ($PSBoundParameters['verbose']) { Start-Sleep 0.5; schtasks /query /s $Target /tn $TaskName /v }
+					#write-verbose "to query whether done type: schtasks /query /s $Target /tn $TaskName /v"						
 				}
 				'PSExec' { 
 					Write-Verbose "Executing $RemotePath\$RemoteFilename with PSExec"
@@ -272,10 +271,10 @@ function Invoke-HuntSurvey {
 				}
 				'PSRemoting' {
 					Write-Verbose "Executing $RemotePath\$RemoteFilename PSRemoting's Invoke-Command"
-					$Result = Start-RemoteProcess -ComputerName $target -ExecutionType PSRemoting -PSScript $RemoteScript -Credential $Credential
+					$Result = Start-RemoteProcess -ComputerName $Target -PSScript $RemoteScript -ExecutionType PSRemoting -Credential $Credential
 
 				}
-			}	
+			}
 			Write-Log $Target $LogPath "Task executed with result: $result" $n
 			#endregion Execute
 		}
@@ -283,7 +282,9 @@ function Invoke-HuntSurvey {
 
 	END {
 		# End scan
-		Write-Verbose "Task COMPLETE: $ScriptPath via Execution Type $ExecutionType"
+		$datetime = (Get-Date).ToString()
+        Write-Progress -activity "Deploying Surveys" -Complete
+        Write-Verbose "SURVEY COMPLETE ($HostCount systems) - $datetime - Using Task $ScriptPath via Execution Type $ExecutionType"
 	}
 }
 
@@ -299,7 +300,7 @@ function Get-HuntSurveyResults {
 .NOTES
 	Name: 			Get-RemoteTaskResults
 	Author:  		Chris Gerritz
-	Version: 		1.3
+	Version: 		0.7
  
 .EXAMPLE
 
@@ -307,12 +308,12 @@ function Get-HuntSurveyResults {
 	[CmdletBinding()]
 	Param(	
 			[Parameter( Position=0, 
-						Mandatory=$True, 
+						Mandatory=$false, 
 						ValueFromPipeline=$True,
 				HelpMessage='Target NetBios Hostname, IP Address, or FQDN')]
 			[ValidateNotNullOrEmpty()]
 			[string[]]
-			$ComputerName,
+			$ComputerName="$env:COMPUTERNAME",
 	
 			[Parameter(Mandatory=$false,
 							HelpMessage='Like this: "C:\Windows\temp\SurveyResults.xml"')]
@@ -338,7 +339,8 @@ function Get-HuntSurveyResults {
 			)
 
 	BEGIN {
-		$ErrorActionPreference = "Stop"
+		#$ErrorActionPreference = "Continue"
+		#$DebugActionPreference = "Continue"
 		
 		#region FUNCTIONS:
 		
@@ -385,40 +387,46 @@ function Get-HuntSurveyResults {
 		#endregion Functions
 			
 		$date = get-date -uformat "%Y%m%d"	
-		$TaskFileName = "Survey.ps1"
 		$ResultsFileName = Split-Path $RemotePath -Leaf
 		
 		# Prep log
 
 		if (!(Test-Path $PSScriptRoot\..\log)) { mkdir $PSScriptRoot\..\log }
 		$LogPath = "$(Resolve-Path $PSScriptRoot\..\log\)\HuntLog.log"
-		
-		Write-Verbose "($date): Recovering Results and Cleaning up"
-			
+	
 		$n = 0
 	}
 
 	PROCESS {
-		foreach ($target in $Targets) {
+
+        $HostCount = $ComputerName.count
+        $datetime = (Get-Date).ToString()
+        Write-Verbose "STARTING SURVEY RESULT RECOVERY ($HostCount systems) - $datetime - Recovering $ResultsFileName"
+
+		foreach ($target in $ComputerName) {
+			if ( ($Target -eq $null) -OR ($Target -eq "") ) { continue }
+			
 			$n += 1
 			$pickuptime = get-date -format "hhmm"
 			$RemoteUNCPath = "\\$Target\$($RemotePath.Chars(0))$\$($RemotePath.Substring($RemotePath.IndexOf(':')+2))"
 			$TargetDATADIR = "$DATADIR\$date\$Target"
 
-			Write-Verbose "($n): Picking up $ResultsFileName on $target. Local Target Datadir: $TargetDATADIR"
+			Write-Verbose "($n): Recovering $ResultsFileName from $target. Local Target Datadir: $TargetDATADIR"
+			Write-Progress -activity "Recovering Survey Results" -status "Percent Complete: " -PercentComplete (($n / $HostCount)  * 100) -CurrentOperation "($n of $HostCount): Recovering $ResultsFileName from $Target"
+
 			
 			#region TEST
 			
 			#  Check local output directory
 			if (!(Test-Path $TargetDATADIR)) {
-				Write-Log $Target $LogPath "Error: $TargetDATADIR does not exists. $Target may not have been scanned. Exiting" $n
+				Write-Log $Target $LogPath "ERROR: $TargetDATADIR does not exists. $Target may not have been scanned. Exiting" $n
 				continue
 			}
 			
 			if ( (Test-TCPPort $target 445) -OR (Test-TCPPort $target 139) ) {
 				
 			} else {
-				Write-Log $Target $LogPath 'Error: $target did not respond on port 445 or 139' $n
+				Write-Log $Target $LogPath "ERROR: $target did not respond on port 445 or 139" $n
 				continue
 			}
 			#endregion Test
@@ -426,18 +434,23 @@ function Get-HuntSurveyResults {
 			#region PICKUP
 			
 			try {
-				Write-Verbose "($n): Transfering RemoteUNCPath to $TargetDATADIR\$pickuptime-$ResultsFileName"
+				Write-Debug "($n): Transfering $RemoteUNCPath to $TargetDATADIR\$pickuptime-$ResultsFileName"
 				$RemoteDisk = New-PSDrive -Name "RD" -PSProvider FileSystem -Root (Split-Path $RemoteUNCPath -Parent) -Credential $credential
-				$null = Move-Item -Path RD:\$ResultsFileName -Destination $TargetDATADIR\$pickuptime-$ResultsFileName -Force
-				
+				if (Test-Path RD:\$ResultsFileName) {
+					$null = Move-Item -Path RD:\$ResultsFileName -Destination $TargetDATADIR\$pickuptime-$ResultsFileName -Force
+					Write-Log $Target $LogPath "SUCCESS[Get-HuntSurveyResults]: Recovered $RemoteUNCPath to $TargetDATADIR\$pickuptime-$ResultsFileName" $n				
+				} else {
+					# Survey Results not present
+					Write-Log $Target $LogPath "FAILURE[Get-HuntSurveyResults]: $RemoteUNCPath was not found" $n		
+				}				
 			} catch [System.UnauthorizedAccessException] {
 				# Access Denied
-				Write-Log $Target $LogPath "ERROR: Unauthorized Access transfering RemoteUNCPath to $TargetDATADIR" $n
-				Remove-PSDrive -name RD -PSProvider FileSystem
+				Write-Log $Target $LogPath "ERROR: Unauthorized Access transfering $RemoteUNCPath to $TargetDATADIR" $n
+				$null = Remove-PSDrive -name RD -PSProvider FileSystem
 				continue
 			} catch {
-				Write-Log $Target $LogPath "ERROR: Failed transfering RemoteUNCPath to $TargetDATADIR.  Error Message: $_.Exception.Message" $n
-				Remove-PSDrive -name RD -PSProvider FileSystem
+				Write-Log $Target $LogPath "ERROR: Failed transfering $RemoteUNCPath to $TargetDATADIR.  Error Message: $($_.Exception.Message)" $n
+				$null = Remove-PSDrive -name RD -PSProvider FileSystem
 				continue
 			} 
 				
@@ -447,7 +460,8 @@ function Get-HuntSurveyResults {
 			#region CLEANUP
 			
 			# Delete Scheduled Task
-			$null = Remove-ScheduledTask $Target $TaskName
+			# $null = Remove-ScheduledTask $Target $TaskName
+
 			<#
 			$TimeOut = 180
 			$Date = Get-Date
@@ -463,24 +477,26 @@ function Get-HuntSurveyResults {
 			
 			# Cleanup Task
 			$filter = [regex]"ps\w{6}-\w{4}-\w{4}-\w{4}-\w{12}[.]ps1$"
-			Write-Verbose "($n): Cleaning up $ScriptPath off $Target"
+			Write-Verbose "($n): Cleaning survey off $Target using a regex filter"
 			try {
 				$null = Get-ChildItem RD:\ | where { $_.name -match $filter } | Remove-Item
-			} catch {		
-				# Write-Log $Target $LogPath "Error: Could not delete $RemoteUNCPath\$TaskFileName $_.Exception.Message" $n
-				Write-Warning "($n): Error: Could not delete $RemoteUNCPath\$TaskFileName"			
-				Write-Debug "$_.Exception.Message"
+			} catch {				
+				Write-Debug "$($_.Exception.Message)"
 			} finally {
-				Remove-PSDrive -name RD -PSProvider FileSystem
+				$null = Remove-PSDrive -name RD -PSProvider FileSystem
 			}
 			#endregion Cleanup
+
+        Write-Output (Resolve-Path $TargetDATADIR\$pickuptime-$ResultsFileName)
 		}
 	}
 
 	END {
 		# End scan
 		$datetime = (Get-Date).ToString()
-		Write-Verbose "$datetime - Pickup COMPLETE: $RemotePath has been picked up"
+        Write-Progress -activity "Recovering Survey Results" -Complete
+        Write-Verbose "COMPLETED SURVEY RESULT RECOVERY ($HostCount systems) - $datetime - $RemotePath has been picked up"
+		
 	}
 }
 		
@@ -492,7 +508,7 @@ function Write-Log {
 		[int]$n
 	)
 	$Time = get-date -format "yyyy-MM-dd hh:mm:ss:ms"
-	if ($Msg -match "Error") {
+	if ($Msg -match "ERROR") {
 		Write-Warning "($n): $Msg"	
 	} else {
 		Write-Verbose "($n): $Msg"	

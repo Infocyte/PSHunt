@@ -68,6 +68,7 @@ function Start-RemoteProcess {
     )
 
 		$ErrorActionPreference = "Stop"
+		
 		Switch ($ExecutionType) {
 			'WMI' {		
 				if ($PSScript) {
@@ -82,7 +83,7 @@ function Start-RemoteProcess {
 				try {
 					$Result = Invoke-WmiMethod -ComputerName $ComputerName -Credential $Credential -Class Win32_process -Name Create -ArgumentList $TaskToRun
 					if ( ($?) -AND ($Result.ReturnValue -eq 0)) { 
-                        $Result = "SUCCESS: Process started on $ComputerName with PID $($Result.ProcessID)" 
+                        $Result = "SUCCESS[Start-RemoteProcess]: Process started on $ComputerName with PID $($Result.ProcessID)" 
                     } else {
                         Switch ($Result.ReturnValue) {
                             0 {$resultTxt = "SUCCESS"}
@@ -117,43 +118,40 @@ function Start-RemoteProcess {
 				elseif ($Command) {
 					$TaskToRun = $Command
 				}
-				Write-Verbose "Executing $TaskToRun via Scheduled Task on $ComputerName"
+				Write-Verbose "[Start-RemoteProcess] Executing $TaskToRun via Scheduled Task on $ComputerName"
 				if ($Credential.UserName -ne $null) {
 					$Username = ($Credential.GetNetworkCredential().Username) 
 					$Domain = ($Credential.GetNetworkCredential().Domain) 
 					if (!$Domain) {
 						$Domain = $ComputerName
 					}
-					Write-Verbose "Using specified credentials: $Domain\$Username"
 					$Result = schtasks /create /RU SYSTEM /s $Computername /U "$Domain\$Username" /P $Credential.GetNetworkCredential().password /tn $TaskName /tr $TaskToRun /sc once /st 23:59 /F 2>&1
 				} else {
 					$Result = schtasks /create /RU SYSTEM /s $Computername /tn $TaskName /tr $TaskToRun /sc once /st 23:59 /F 2>&1
 				}
-				Write-Verbose "$Result"
+				Write-Verbose "[Start-RemoteProcess] $Result"
 				if (!($?) -OR ($Result -match "Error") ) {
-                    Write-Debug "$Result and $?"
 					Write-Warning "ERROR[Start-RemoteProcess]: Could not scheduled task on $Computername with result: $Result" 
 					return "ERROR[Start-RemoteProcess]: Could not schedule task on $Computername with result: $Result" 
 				}
 
-				Write-Verbose "Running $TaskName on $ComputerName"
+				Write-Verbose "[Start-RemoteProcess] Running $TaskName on $ComputerName"
 				if ($Credential.UserName -ne $null) {
-					Write-Verbose "Using specified credentials: $($($Credential.Username).ToString())"
+					# Write-Verbose "Using specified credentials: $($($Credential.Username).ToString())"
 					$Result = schtasks /run /s $Computername /tn $TaskName /U ($Credential.GetNetworkCredential().Username) /P ($Credential.GetNetworkCredential().password) 2>&1
 				} else {
 					$Result = schtasks /run /s $Computername /tn $TaskName 2>&1
 				}
 				if (!($?) -OR ($Result -match "Error") ) {
-                    Write-Debug "$Result and $?"
-					Write-Warning "Error while running scheduled task on $Computername with result: $Result" 
-					return "ERROR[Start-RemoteProcess]: Could not run task on $Computername with result: $Result" 
+					Write-Warning "ERROR[Start-RemoteProcess]: Error while running scheduled task on $Computername with result: $Result" 
+					return "ERROR[Start-RemoteProcess]: Could not run scheduled task on $Computername with result: $Result" 
 				} else {
-					Write-Verbose "$Result"
+					Write-Verbose "[Start-RemoteProcess] $Result"
 				}
 				
 				# Deleting the task while running was causing problems...
 				Start-Sleep -s 1
-				Write-Verbose "Deleting Scheduled Task"
+				Write-Verbose "[Start-RemoteProcess] Deleting Scheduled Task"
 				if ($Credential.UserName -ne $null) {
 					$Result = schtasks /Delete /s $Computername /tn $TaskName /U ($Credential.GetNetworkCredential().Username) /P ($Credential.GetNetworkCredential().password) /F 2>&1
 				} else {
@@ -161,10 +159,9 @@ function Start-RemoteProcess {
 				}
 				
 				if (!($?) -OR ($Result -match "Error") ) {
-                    Write-Debug "$Result and $?"
-					Write-Warning "Error while disabling scheduled task on $Computername with result: $Result"  
+					Write-Warning "ERROR[Start-RemoteProcess]: Error while disabling scheduled task on $Computername with result: $Result"  
 				} else {
-					Write-Verbose "$Result"
+					Write-Verbose "[Start-RemoteProcess] $Result"
 				}
 
 				# Spaces in file paths can be used by using two sets of quotes, one
@@ -181,11 +178,10 @@ function Start-RemoteProcess {
 				elseif ($Command) {
 					$TaskToRun = $Command
 				}
-				Write-Verbose "Running $TaskToRun via PSExec on $ComputerName"
+				Write-Verbose "[Start-RemoteProcess] Running $TaskToRun via PSExec on $ComputerName"
 				
 				try {
 					$Result = Invoke-PsExec -ComputerName $ComputerName -Command $TaskToRun -Credential $Credential
-					Write-Debug "$Result"
 				} catch {
 					Write-Warning "ERROR[Start-RemoteProcess]: Invoke-PsExec on $ComputerName running $TaskToRun.  Error: $Result"
 					return "ERROR[Start-RemoteProcess]: Invoke-PsExec on $ComputerName running $TaskToRun.  Error: $Result"
@@ -207,28 +203,49 @@ function Start-RemoteProcess {
 				
 				if ($PSScript) {
 					$cmd = "iex $PSScript"
-					Write-Verbose "Executing $PSScript via PSRemoting's Invoke-Command: $cmd"
 				}
 				elseif ($Command) {
 					$cmd = $Command
-					Write-Verbose "Executing $Command via PSRemoting's Invoke-Command: $cmd"
 				}
 				$sb = [ScriptBlock]::Create($cmd)
+				Write-Verbose "[Start-RemoteProcess] Executing via PSRemoting's Invoke-Command: $cmd"
 				
-				try {
-					$Job = Invoke-Command -ComputerName $ComputerName -ScriptBlock $sb -asJob -Credential $Credential
-					Write-Debug "(Get-Job)"
-					Start-Sleep -Milliseconds 100
-					if ( ($Job.State -eq 'Error') -OR ($Job.State -eq 'Failed') ) {
-						Throw "(Get-Job)"
-					}					
-				} catch {
-					Write-Warning "ERROR[Start-RemoteProcess]: PSRemoting command $Command failed on $ComputerName with $Credential with Error: $Job.Error"
-					return "ERROR[Start-RemoteProcess]: PSRemoting command $Command failed on $ComputerName with $Credential with Error: $Job.Error"
+				# Invoke-Command isn't working against localhost with ComputerName param
+				
+				if (($ComputerName -eq $env:ComputerName) -OR ($ComputerName -match 'localhost') -OR ($ComputerName -eq '127.0.0.1') ) {
+					try {	
+						Write-Debug "Launching local job against localhost"
+						$Job = Start-Job -ScriptBlock $sb -Credential $Credential
+						Start-Sleep -Milliseconds 100
+						if ( ($Job.State -eq 'Error') -OR ($Job.State -eq 'Failed') ) {
+							Throw "ERROR[Start-RemoteProcess]: Starting ScriptBlock with Start-Job"
+						}					
+					} catch {
+						Write-Warning "ERROR[Start-RemoteProcess]: PSRemoting command $Command failed on $ComputerName with $Credential with Error: $($Job.Error)"
+						return "ERROR[Start-RemoteProcess]: PSRemoting command $Command failed on $ComputerName with $Credential with Error: $($Job.Error)"
+					}
+				} else {
+					try {
+						if ($Credential) {
+							$Job = Invoke-Command -ComputerName $ComputerName -ScriptBlock $sb -asJob -Credential $Credential
+						} else {
+							$Job = Invoke-Command -ComputerName $ComputerName -ScriptBlock $sb -asJob				
+						}
+
+						Start-Sleep -Milliseconds 100
+						if ( ($Job.State -eq 'Error') -OR ($Job.State -eq 'Failed') ) {
+							Throw "ERROR[Start-RemoteProcess]: Starting ScriptBlock with Invoke-Command"
+						}					
+					} catch {
+						Write-Warning "ERROR[Start-RemoteProcess]: PSRemoting command $Command failed on $ComputerName with creds ($Credential) with Error: $($Job.Error)"
+						return "ERROR[Start-RemoteProcess]: PSRemoting command $Command failed on $ComputerName with creds ($Credential) with Error: $($Job.Error)"
+					}
 				}
-				
 			}
 		}
+		# Don't track jobs
+		# $null = Get-Job | Remove-Job
+		
 		return "SUCCESS: Execution Complete on $ComputerName"
 }
 
@@ -557,17 +574,3 @@ function Invoke-PsExec {
 	$RevertToSelf.Invoke()
 } # End Invoke-PSExec
 		
-
-# -------------------------------------------------------------
-# Notes
-
-# schtasks /create /ru system /tn dcc_task /tr "powershell -executionpolicy bypass C:\windows\temp\Survey.ps1" /sc once /st 23:59 /F
-# schtasks /run /tn pshunttask
-# Schtasks /create /tn "pshunttask" /sc daily /st 08:00 /tr "PowerShell -command {Get-childitem -path c:\users\username\desktop | out-file C:\yay.txt}"
-
-# $Targets = 'Win7','Win2k8R2','win7-32-1'
-# $Script = "C:\Windows\Temp\test.ps1"
-# $TaskToRun = "cmd.exe /c PowerShell.exe -Exec ByPass -NonInteractive -File $Script"
-# $cred = Get-Credential infocyte
-# $Targets | % { Invoke-PSExec -ComputerName $_ -Credential $cred -Command $TaskToRun -Verbose }
-# $Targets | % { Start-RemoteProcess -ComputerName $_ -PSScript $task -Credential $cred -ExecutionType PSexec -Debug

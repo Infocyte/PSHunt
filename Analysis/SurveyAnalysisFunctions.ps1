@@ -908,5 +908,5 @@ Param(
 
 # Test
 
-gci C:\Users\Chris\Documents\GitHub\PSHunt\Surveys -recurse -Include *.xml | Group-HuntObjects -debug -verbose
+#gci C:\Users\Chris\Documents\GitHub\PSHunt\Surveys -recurse -Include *.xml | Group-HuntObjects -debug -verbose
 
