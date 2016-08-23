@@ -300,14 +300,16 @@ function Get-Hashes {
 	
 .NOTES
 	Name:			Get-Hash
-	Author:			
-	Maintainer:		Christopher Gerritz
+	Author: 		Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
+	License: 		Apache License 2.0
 	Version:		1.0
+	Required Dependencies: 	None
+	Optional Dependencies: 	None
 	
 .PARAMETER Path
 	FilePath to be hashed.  Can be pipelined.
 
-.PARAMETER Path
+.PARAMETER Type
 	Type of hashes to be used.  Defaults to 'all' which is MD5, SHA1, and SHA256
 	
 .EXAMPLE

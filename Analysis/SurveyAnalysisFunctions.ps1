@@ -33,10 +33,29 @@ $Process.SHA1 | Get-HuntVTStatus -APIKey 'cb83aa5543b1...'
 #region Analysis Cmdlets
 
 function Initialize-HuntReputation {
-	Param([Switch]$Reload)
-# Load Reputation Data into global lookup hashtables 
+<#
+.SYNOPSIS 
+	Returns a MD5, SHA1, and SHA256 hashes of a file. 
+	Return is formated as uppercase HEX without byte group delimiters.
 	
-	function _Import-FileReputation {
+.NOTES
+	Name:			Get-Hash
+	Author: 		Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
+	License: 		Apache License 2.0
+	Version:		1.0
+	Required Dependencies: 	File Reputation Lists in \Reputation
+	Optional Dependencies: 	None
+
+.PARAMETER Reload
+	Will reload from the file even if FileReputation is already loaded into memory
+	
+.EXAMPLE
+	PS > Initialize-HuntReputation -Reload
+	
+#>	
+	Param([Switch]$Reload)
+	
+	function Import-FileReputation {
 		Param(
 			[String]$csvpath
 		)
@@ -101,7 +120,7 @@ function Initialize-HuntReputation {
 		return $hashlist
 	}
 		
-	function _Import-NIST {
+	function Import-NIST {
 	Param(
 		[Parameter(Position=0, Mandatory=$True)]
 		[ValidateScript({ Test-Path $_ -PathType Leaf -Include *.txt })]	
@@ -143,7 +162,7 @@ function Initialize-HuntReputation {
 		return $hashlist
 	}
 
-	function _Import-URLReputation {
+	function Import-URLReputation {
 		Param(
 			[String]$csvpath
 		)
@@ -184,21 +203,21 @@ function Initialize-HuntReputation {
 	if (!$Global:NIST) {
 		$Message = "Loading NIST Database - {0:N2} MB" -f ((Get-ItemProperty -path $NistPath).length/1000000)
 		Write-Verbose $Message 
-		$Global:NIST = _Import-NIST $NISTPath
+		$Global:NIST = Import-NIST $NISTPath
 	} 
 	if ( ($Reload) -OR (!$Global:FileReputation) ) {
 		$Message = "Loading FileReputation - {0:N2} MB" -f ((Get-ItemProperty -path $FileReputationPath).length/1000000)
 		Write-Verbose $Message 
-		$Global:FileReputation = _Import-FileReputation $FileReputationPath
+		$Global:FileReputation = Import-FileReputation $FileReputationPath
 	}
 	if ( ($Reload) -OR (!$Global:URLReputation) ) {
 		$Message = "Loading URLReputation - {0:N2} MB" -f ((Get-ItemProperty -path $URLReputationPath).length/1000000)
 		Write-Verbose $Message 
-		$Global:URLReputation = _Import-URLReputation $URLReputationPath
+		$Global:URLReputation = Import-URLReputation $URLReputationPath
 	}
 	<#
 	if (!$Global:PipesReputation) {
-		$Global:PipesReputation = _Import-URLReputation $PipesReputationPath
+		$Global:PipesReputation = Import-URLReputation $PipesReputationPath
 	}	
 	#>
 	return 
@@ -210,7 +229,7 @@ function Update-HuntObject {
 	Used to analyze output from the psHunt Survey (survey.ps1) HostObject.
 
 	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
-	License: BSD 3-Clause
+	License: Apache License 2.0
 	Required Dependencies: 	SurveyAnalysis.ps1
 							VirusTotal.psm1
 	Optional Dependencies: 	None
@@ -433,7 +452,7 @@ function Get-HuntVTStatus {
 	per the public key limit. 
 
 	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
-	License: BSD 3-Clause
+	License: Apache License 2.0
 	Required Dependencies: VirusTotal.psm1
 	Optional Dependencies: None
 
