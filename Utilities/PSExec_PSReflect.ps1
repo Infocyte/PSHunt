@@ -143,7 +143,7 @@ function Invoke-PsExec2 {
 
 } # End Invoke-PSExec
 	
-#region Helper Functions
+#region Helper Functions (PSReflect)
 # -------- PSReflect -------------
 # http://www.powershellmagazine.com/2014/09/25/easily-defining-enums-structs-and-win32-functions-in-memory/
 

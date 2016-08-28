@@ -11,10 +11,10 @@ function Invoke-HuntSurvey {
 	
 .NOTES
 
-	Name:					Invoke-HuntRemoteTask	
-	Author:					Chris Gerritz (Github @singlethreaded) (Twitter: @gerritzc)
-	Version:				0.9
-    License: 				Apache License 2.0
+	Project: PSHunt
+	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
+	Company: Infocyte, Inc.
+	License: Apache License 2.0
     Required Dependencies: 	Start-RemoteTask
 							Invoke-PsExec
     Optional Dependencies: 	None
@@ -101,6 +101,23 @@ function Invoke-HuntSurvey {
 
 	BEGIN {
 		$ErrorActionPreference = "Stop"
+		
+		function Write-Log {
+			Param(	
+				[string]$Target, 
+				[String]$LogPath, 
+				[string]$Msg, 
+				[int]$n
+			)
+			$Time = get-date -format "yyyy-MM-dd hh:mm:ss:ms"
+			if ($Msg -match "ERROR") {
+				Write-Warning "($n): $Msg"	
+			} else {
+				Write-Verbose "($n): $Msg"	
+			}
+			"$Time, $Target, " + $Msg | Out-File -Encoding 'ASCII' -Append $LogPath
+		}
+
 		
 		# Generate Random filename (random but will start with 'ps' and end in .ps1)
 		[string] $RemoteFilename = 'ps' + [System.Guid]::NewGuid().ToString().Substring(2) + $ScriptPath.Substring($ScriptPath.LastIndexOf('.'))
@@ -292,15 +309,20 @@ function Get-HuntSurveyResults {
 <#
 .SYNOPSIS
 	Pickup results from remote host and cleanup
-			
+
+	Project: PSHunt
+	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
+	Company: Infocyte, Inc.
+	License: Apache License 2.0
+	Required Dependencies: None
+	Optional Dependencies: None
+	
 .DESCRIPTION 
 		Companion to Invoke-RemoteTask
 		Used to pickup results from Execute-RemoteTask survey.
 		
 .NOTES
-	Name: 			Get-RemoteTaskResults
-	Author:  		Chris Gerritz
-	Version: 		0.7
+
  
 .EXAMPLE
 
@@ -384,6 +406,23 @@ function Get-HuntSurveyResults {
 			return "SUCCESS: Task Removed from $Target"
 		}  
 
+		function Write-Log {
+			Param(	
+				[string]$Target, 
+				[String]$LogPath, 
+				[string]$Msg, 
+				[int]$n
+			)
+			$Time = get-date -format "yyyy-MM-dd hh:mm:ss:ms"
+			if ($Msg -match "ERROR") {
+				Write-Warning "($n): $Msg"	
+			} else {
+				Write-Verbose "($n): $Msg"	
+			}
+			"$Time, $Target, " + $Msg | Out-File -Encoding 'ASCII' -Append $LogPath
+		}
+
+		
 		#endregion Functions
 			
 		$date = get-date -uformat "%Y%m%d"	
@@ -500,18 +539,3 @@ function Get-HuntSurveyResults {
 	}
 }
 		
-function Write-Log {
-	Param(	
-		[string]$Target, 
-		[String]$LogPath, 
-		[string]$Msg, 
-		[int]$n
-	)
-	$Time = get-date -format "yyyy-MM-dd hh:mm:ss:ms"
-	if ($Msg -match "ERROR") {
-		Write-Warning "($n): $Msg"	
-	} else {
-		Write-Verbose "($n): $Msg"	
-	}
-	"$Time, $Target, " + $Msg | Out-File -Encoding 'ASCII' -Append $LogPath
-}

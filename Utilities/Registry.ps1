@@ -1,4 +1,4 @@
-﻿# TODO: Update with another method that takes Credentials - WMI is aweful.
+﻿# TODO: Update with another method that takes Credentials - WMI is kind of aweful.
 function Get-RemoteRegistryValue {
 <#
 		$HKCR = 2147483648 #HKEY_CLASSES_ROOT
@@ -18,7 +18,7 @@ function Get-RemoteRegistryValue {
 Param(
 	[Parameter(	Position=0, 
 				Mandatory=$true)]
-	[string]$Target,
+	[string]$ComputerName,
 	
 	[Parameter(	Position=1, 
 				Mandatory=$true)]
@@ -50,14 +50,21 @@ Param(
 	}
 
 	try {
-		$reg = Get-WmiObject -List -Namespace "root\default" -ComputerName $Target -Credential $cred | Where-Object {$_.Name -eq "StdRegProv"}
+
+	 	$Reg = Get-Wmiobject -list "StdRegProv" -namespace root\default -Computername $ComputerName -Credential $Credential
 		
 	} catch {
 		Write-Warning "Could not connect to $Target Registry Provider"
 		return "ERROR: Could not connect to $Target Registry Provider"
 	}
 	
-	#this is hard...
+	try {
+		$Value = $Reg.GetStringValue($HiveName,$KeyName,$KeyValue)).svalue
+		Write-Output $Value
+	} catch {
+		Write-Warning "Could not get string value of $KeyValue from $Target $HiveName:$KeyName"
+		return "ERROR: Could not get string value of $KeyValue from $Target $HiveName:$KeyName"		
+	}
 	
 	<#
 	# $reg = [wmiclass]'\\$Target\root\default:StdRegprov'

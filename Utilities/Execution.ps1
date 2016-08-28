@@ -4,14 +4,12 @@ function Start-RemoteProcess {
  
 	Executes a command on a remote computer using various execution options.
 
-.NOTES
-
-	Name:					Start-RemoteProcess
-	Author:					Chris Gerritz (Github @singlethreaded) (Twitter: @gerritzc)
-	Version:				0.9
-    License: 				Apache License 2.0
-    Required Dependencies: 	None
-    Optional Dependencies: 	None
+	Project: PSHunt
+	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
+	Company: Infocyte, Inc.
+	License: Apache License 2.0
+	Required Dependencies: None
+	Optional Dependencies: None
 
 .DESCRIPTION
   
@@ -79,7 +77,7 @@ function Start-RemoteProcess {
 					$TaskToRun = $Command
 				}
 				
-				Write-Verbose "Running $TaskToRun via Invoke-WMIMethod on $ComputerName"
+				Write-Verbose "[Start-RemoteProcess]: Running $TaskToRun via Invoke-WMIMethod on $ComputerName"
 				try {
 					$Result = Invoke-WmiMethod -ComputerName $ComputerName -Credential $Credential -Class Win32_process -Name Create -ArgumentList $TaskToRun
 					if ( ($?) -AND ($Result.ReturnValue -eq 0)) { 
@@ -96,17 +94,21 @@ function Start-RemoteProcess {
                                 $resultTxt = "$($Error[0].Exception.Message)"
                             }
                         }  
+						Write-Debug "Using \$? error handling on WMI"
                         Write-Warning "ERROR[Start-RemoteProcess]: $resultTxt on $ComputerName when running command $taskToRun"
                         throw $resultTxt
                     } 
 				} catch [System.UnauthorizedAccessException] {
 					# Access is denied
+					Write-Debug "UnauthorizedAccessException error thrown"
 					return "ERROR[Start-RemoteProcess]: Access Denied to $ComputerName with Result: $resultTxt"
 				} catch [System.Runtime.InteropServices.COMException] {
 					# The RPC server is unavailable
+					Write-Debug "COMException error thrown"
 					return "ERROR[Start-RemoteProcess]: The RPC server is unavailable on $ComputerName with Result: $resultTxt"
 				} catch {
 					# General Exception
+					Write-Debug "General or unknown error thrown"
 					return "ERROR[Start-RemoteProcess]: WMI Failure on $ComputerName with Result: $resultTxt"
 				}
 			}
@@ -129,10 +131,11 @@ function Start-RemoteProcess {
 				} else {
 					$Result = schtasks /create /RU SYSTEM /s $Computername /tn $TaskName /tr $TaskToRun /sc once /st 23:59 /F 2>&1
 				}
-				Write-Verbose "[Start-RemoteProcess] $Result"
 				if (!($?) -OR ($Result -match "Error") ) {
 					Write-Warning "ERROR[Start-RemoteProcess]: Could not scheduled task on $Computername with result: $Result" 
 					return "ERROR[Start-RemoteProcess]: Could not schedule task on $Computername with result: $Result" 
+				} else {
+					Write-Verbose "[Start-RemoteProcess] Created task with result: $Result"
 				}
 
 				Write-Verbose "[Start-RemoteProcess] Running $TaskName on $ComputerName"
@@ -151,7 +154,7 @@ function Start-RemoteProcess {
 				
 				# Deleting the task while running was causing problems...
 				Start-Sleep -s 1
-				Write-Verbose "[Start-RemoteProcess] Deleting Scheduled Task"
+				Write-Verbose "[Start-RemoteProcess] Deleting Scheduled Task $TaskName"
 				if ($Credential.UserName -ne $null) {
 					$Result = schtasks /Delete /s $Computername /tn $TaskName /U ($Credential.GetNetworkCredential().Username) /P ($Credential.GetNetworkCredential().password) /F 2>&1
 				} else {
@@ -161,7 +164,7 @@ function Start-RemoteProcess {
 				if (!($?) -OR ($Result -match "Error") ) {
 					Write-Warning "ERROR[Start-RemoteProcess]: Error while disabling scheduled task on $Computername with result: $Result"  
 				} else {
-					Write-Verbose "[Start-RemoteProcess] $Result"
+					Write-Verbose "[Start-RemoteProcess] Deleted task with result: $Result"
 				}
 
 				# Spaces in file paths can be used by using two sets of quotes, one
@@ -178,7 +181,7 @@ function Start-RemoteProcess {
 				elseif ($Command) {
 					$TaskToRun = $Command
 				}
-				Write-Verbose "[Start-RemoteProcess] Running $TaskToRun via PSExec on $ComputerName"
+				Write-Debug "[Start-RemoteProcess] Running $TaskToRun via PSExec on $ComputerName"
 				
 				try {
 					$Result = Invoke-PsExec -ComputerName $ComputerName -Command $TaskToRun -Credential $Credential
@@ -262,9 +265,13 @@ function Invoke-PsExec {
 		I removed some of the stuff we didn't need in PSHunt and added the ability to 
 		impersonate an account for remote execution to off domain systems.
 
-		Author: Chris Gerritz (Github @singlethreaded) (Twitter: @gerritzc)
+		Project: PSHunt
+		Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
 		Original Author: @harmj0y
+		Company: Infocyte, Inc.
 		License: BSD 3-Clause
+		Required Dependencies: None
+		Optional Dependencies: None
 
 	.PARAMETER ComputerName
 
@@ -441,7 +448,7 @@ function Invoke-PsExec {
 		# Step 0 - LogonUser to create a user token with new username/pass, then force this thread to impersonate it.
 		# https://msdn.microsoft.com/en-us/library/windows/desktop/aa378184(v=vs.85).aspx
 		# LOGON32_LOGON_NEW_CREDENTIALS = 9
-        Write-Verbose "Using Credentials"
+        Write-Debug "Using Credentials"
         if (!$Credential.GetNetworkCredential().Domain) {
             # Go with non-domain name
             $Domain = $ComputerName
@@ -508,7 +515,7 @@ function Invoke-PsExec {
 
 				# if we successfully started the service, let it breathe and then delete it
 				if ($val -ne 0){
-					Write-Verbose "[*] Remote Service successfully started"
+					Write-Debug "[*] Remote Service successfully started"
 					# breathe for a second
 					Start-Sleep -s 1
 				}

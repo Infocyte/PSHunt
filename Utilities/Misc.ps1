@@ -83,42 +83,18 @@ function Invoke-DownloadFile {
 	}
 }
 
-
-<#
-function ConvertTo-CLPath ([string]$inputStr) {
-	# PathName extractor
-	#[regex]$pathpattern = '(\b[a-z]:\\(?# Drive)(?:[^\\/:*?"<>|\r\n]+\\)*)(?# Folder)([^\\/:*?"<>|\r\n,\s]*)(?# File)'
-	#[regex]$pathpattern = "((?:(?:%\w+%\\)|(?:[a-z]:\\)){1}(?:[^\\/:*?""<>|\r\n]+\\)*[^\\/:*?""<>|\r\n]*\.(?:exe|dll|sys))"
-	
-	#Check for paths with no drive letter:
-	$str = $inputStr.ToLower()
-	
-	if ($str -match "%systemroot%") {
-		$str = $str.Replace("%systemroot%", "$env:SystemRoot")
+function Write-Log {
+	Param(	
+		[string]$Target, 
+		[String]$LogPath, 
+		[string]$Msg, 
+		[int]$n
+	)
+	$Time = get-date -format "yyyy-MM-dd hh:mm:ss:ms"
+	if ($Msg -match "ERROR") {
+		Write-Warning "($n): $Msg"	
+	} else {
+		Write-Verbose "($n): $Msg"	
 	}
-	if ($str -match "%programfiles%") {
-		$str = $str.Replace("%programfiles%", "$env:programfiles")
-	}
-	if ($str -match "%windir%") {
-		$str = $str.Replace("%windir%", "$env:windir")
-	}	
-	if ($str -match "\\systemroot") {
-		$str = $str.Replace("\systemroot", "$env:SystemRoot")
-	}
-
-	if ($str.StartsWith("system32")) {
-		$str = $env:windir + "\" + $str
-	}
-	if ($str.StartsWith("syswow64")) {
-		$str = $env:SystemRoot + "\" + $str
-	}
-
-	# Match Regex of File Path
-	$regex = '(\b[a-z]:\\(?# Drive)(?:[^\\/:*?"<>|\r\n]+\\)*)(?# Folder)([^\\/:*?"<>|\r\n,\s]*)(?# File)'
-	$matches = $str | select-string -Pattern $regex -AllMatches | % { $_.Matches } | % { $_.Value }
-	
-	# Write-Verbose "Matches: $str --> $matches"
-	
-	return $matches
+	"$Time, $Target, " + $Msg | Out-File -Encoding 'ASCII' -Append $LogPath
 }
-#>

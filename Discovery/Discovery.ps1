@@ -924,7 +924,7 @@ function Test-TCPPorts {
 }
 
 
-# PortScan from PowerSloit
+# PortScan from PowerSloit.
 function Invoke-Portscan
 {
 <#
@@ -2014,6 +2014,7 @@ http://webstersprodigy.net
     }
 }
 
+# ipcalc utility from Joakim Svendsen.
 function Invoke-PSipcalc 
 {
 <#
@@ -2289,7 +2290,7 @@ Enumerates all IPs in subnet (potentially resource-expensive). Ignored if you us
     $NetworkAddress | ForEach-Object { Get-ProperCIDR -CIDRString $_ } | ForEach-Object { Get-NetworkInformationFromProperCIDR -CIDRObject $_ }
 }
 
-# Parsing function taken from PowersSploit.  Thanks Matthew Graeber!
+# IP parsing function from PowersSploit.
 function Parse-IPList ([String] $IpRange)
 {
 
