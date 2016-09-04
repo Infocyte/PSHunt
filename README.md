@@ -1,8 +1,10 @@
-### PSHunt
+# PSHunt
 
-PSHunt is a Powershell Threat Hunting Module designed to scan remote endpoints* for indicators of compromise and survey them for more comprehensive information related to the state of the systems (active processes, autostarts, configurations, and/or logs).  
+PSHunt is a Powershell Threat Hunting Module designed to scan remote endpoints* for indicators of compromise or survey them for more comprehensive information related to state of those systems (active processes, autostarts, configurations, and/or logs).  
 
 PSHunt began as the precurser to Infocyte's commercial product, [Infocyte HUNT](http://www.infocyte.com/products), and is now being open sourced for the benefit of the DFIR community.
+
+[Read More](https://good-hunting.ghost.io/2016/09/01/pshunt-powershell-threat-hunting-project/)
 
 *Currently just Windows
 
