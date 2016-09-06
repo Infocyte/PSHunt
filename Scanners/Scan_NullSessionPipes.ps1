@@ -83,6 +83,7 @@ if (-not $ScanData.ContainsKey($Computer)) {
 #			+ any user defined inputs ($Args)
 # Outputs: 	Add output to $ScanData[$Computer] as a new member (NoteProperty) rather than pipeline:
 # 			Example: $ScanData[$Computer] | Add-Member -MemberType NoteProperty -Name 'OS' -Value $OS
+# DO NOT EDIT ABOVE THIS COMMENT BLOCK
 #########################################
 
 # Uniquely define a new GUID for every defined scan
@@ -127,7 +128,8 @@ $ScanData[$Computer] | Add-Member -MemberType NoteProperty -Name $KeyValue2 -Val
 
 
 #########################################
-# End Scan Function 							
+# End Scan Function
+# DO NOT EDIT BELOW THIS COMMENT BLOCK 							
 #########################################
 
 if ($PSBoundParameters['Debug']) {
