@@ -1,6 +1,6 @@
 @{
 # Script module or binary module file associated with this manifest.
-ModuleToProcess = 'psHunt.psm1'
+ModuleToProcess = 'PSHunt.psm1'
 
 # Version number of this module.
 ModuleVersion = '0.7.0.0'
@@ -9,13 +9,13 @@ ModuleVersion = '0.7.0.0'
 GUID = '3d8e67d5-1542-40da-8e6a-b5e9af0e3f1f'
 
 # Author of this module
-Author = 'Chris Gerritz', 'Russ Morris'
+Author = @('Chris Gerritz', 'Russ Morris')
 
 # Company or vendor of this module
 CompanyName = 'Infocyte, Inc.'
 
 # Copyright statement for this module
-Copyright = 'BSD 3-Clause unless explicitly noted otherwise'
+Copyright = 'Apache License 2.0 unless explicitly noted otherwise'
 
 # Description of the functionality provided by this module
 Description = 'Threat Hunting Module'
@@ -30,34 +30,34 @@ RequiredAssemblies = @()
 FormatsToProcess = @()
 
 # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
-NestedModules = @()
+NestedModules = @( 	'lib\Posh-VirusTotal\Posh-VirusTotal.psm1',
+					'lib\PSReflect\PSReflect.psm1'  )
 
 # Functions to export from this module
-FunctionsToExport = @(	'Start-RemoteProcess',
-						'Invoke-DownloadFile',
-						'Convert-BinaryToString',
-						'Convert-StringToBinary',
-						'Get-RemoteRegistryValue',
-						'Invoke-HuntSurvey',
-						'Get-HuntSurveyResults',
-						'Test-TCPPort',
-						'Test-TCPPorts',
-						'Get-RemoteArchitecture',
-						'Get-RemotePowershellVersion',
-						'Get-RemoteOperatingSystem',
-						'Get-Strings',
-						'Get-Entropy',
-						'Invoke-Sigcheck',
-						'Get-Hashes',
-						'Initialize-HuntReputation',
-						'Update-HuntObject',
-						'Get-HuntVTStatus',
-						'Group-HuntObjects',
-						'Get-VTReport',
-						'Invoke-VTScan',
-						'New-VTComment',
-						'Invoke-VTRescan'
-					)
+FunctionsToExport = @(	
+	'Get-HuntTargets',
+	'Invoke-HuntPortScan',
+	'Expand-IPList',
+	'Invoke-PSipcalc ',
+	'Start-RemoteProcess',
+	'Invoke-HuntScanner',
+	'Invoke-HuntSurvey',
+	'Get-HuntSurveyResults',
+	'Initialize-HuntReputation',
+	'Update-HuntObject',
+	'Get-HuntVTStatus',
+	'Group-HuntObjects',
+	'Test-TCPPort',
+	'Test-TCPPorts',
+	'Get-Strings',
+	'Get-Entropy',
+	'Invoke-Sigcheck',
+	'Get-Hashes',
+	'Convert-BinaryToString',
+	'Convert-StringToBinary',
+	'Get-VTReport',
+	'Invoke-VTScan'
+)
 
 # Cmdlets to export from this module
 CmdletsToExport = ''
@@ -70,4 +70,16 @@ AliasesToExport = ''
 
 # List of all modules packaged with this module.
 ModuleList = @()
+
+PrivateData = @{
+
+	# Tags applied to this module. These help with module discovery in online galleries.
+	Tags = @('security','threat hunting','hunt','incident response','dfir')
+
+	# A URL to the license for this module.
+	LicenseUri = 'http://www.apache.org/licenses/LICENSE-2.0.html'
+
+	# A URL to the main website for this project.
+	ProjectUri = 'https://github.com/Infocyte/PSHunt'
+}
 }
