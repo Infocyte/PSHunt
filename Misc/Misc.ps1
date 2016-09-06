@@ -83,18 +83,16 @@ function Invoke-DownloadFile {
 	}
 }
 
-function Write-Log {
-	Param(	
-		[string]$Target, 
-		[String]$LogPath, 
-		[string]$Msg, 
-		[int]$n
-	)
-	$Time = get-date -format "yyyy-MM-dd hh:mm:ss:ms"
-	if ($Msg -match "ERROR") {
-		Write-Warning "($n): $Msg"	
-	} else {
-		Write-Verbose "($n): $Msg"	
+function Merge-HashTable($htold, $htnew) {
+	$keys = $htold.getenumerator() | foreach-object {$_.key}
+	$keys | foreach-object {
+		$key = $_
+		if ($htnew.containskey($key))
+		{
+			$htold.remove($key)
+		}
 	}
-	"$Time, $Target, " + $Msg | Out-File -Encoding 'ASCII' -Append $LogPath
+	$htnew = $htold + $htnew
+	return $htnew
 }
+
