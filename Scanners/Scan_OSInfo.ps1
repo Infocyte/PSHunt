@@ -38,8 +38,6 @@ param(
 	[int] $ID=0,
 	[string] $Computer,
 	[System.Management.Automation.PSCredential] $Credential
-	[switch] $switch1,
-	[String] $string1,
 )
 
 <#

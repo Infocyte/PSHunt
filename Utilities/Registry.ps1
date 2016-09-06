@@ -59,11 +59,11 @@ Param(
 	}
 	
 	try {
-		$Value = $Reg.GetStringValue($HiveName,$KeyName,$KeyValue)).svalue
+		$Value = $Reg.GetStringValue($HiveName,$KeyName,$KeyValue).svalue
 		Write-Output $Value
 	} catch {
-		Write-Warning "Could not get string value of $KeyValue from $Target $HiveName:$KeyName"
-		return "ERROR: Could not get string value of $KeyValue from $Target $HiveName:$KeyName"		
+		Write-Warning "Could not get string value of $KeyValue from $Target $HiveName :\$KeyName"
+		return "ERROR: Could not get string value of $KeyValue from $Target $HiveName :\$KeyName"		
 	}
 	
 	<#

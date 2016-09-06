@@ -580,4 +580,204 @@ function Invoke-PsExec {
 			
 	$RevertToSelf.Invoke()
 } # End Invoke-PSExec
+
+# Experimental w/ PSReflect
+function Invoke-PsExec2 {
+<#
+	.SYNOPSIS
+
+		This function is a rough port of Metasploit's psexec functionality.
+		It utilizes Windows API calls to open up the service manager on
+		a remote machine, creates/run a service to run a command, and then 
+		cleans everything up.
+
+		Adapted from @harmjoy's Invoke-PSExec which came from MSF's version (see links).
+		I removed some of the stuff we didn't need in PSHunt and added the ability to 
+		impersonate an account for remote execution to off domain systems.
+
+		Project: PSHunt
+		Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
+		Original Author: @harmj0y
+		Company: Infocyte, Inc.
+		License: BSD 3-Clause
+		Required Dependencies: PSReflect
+		Optional Dependencies: None
+
+	.PARAMETER ComputerName
+
+		ComputerName to run the command on.
+
+	.PARAMETER Command
+
+		Binary path (or Windows command) to execute.
+
+	.PARAMETER ServiceName
+
+		The name of the service to create, defaults to "PSHuntSvc"
+
+	.EXAMPLE
+
+		PS C:\> Invoke-PsExec -ComputerName 192.168.50.200 -Command "net user backdoor password123 /delete"
+
+		Deletes a user named backdoor on the 192.168.50.200 host.
+
+	.EXAMPLE
+
+		PS C:\> Invoke-PsExec -ComputerName 192.168.50.200 -Credentials (Get-Credential) -Command "cmd /c Powershell.exe -File C:\Windows\Temp\survey.ps1" -ServiceName pshuntsvc
+
+		Runs the powershell script C:\Windows\Temp\survey.ps1 using a temporary service called "pshuntsvc"
+		Advapi32:CreateServiceA is being difficult so I could only get powershell scripts to work with cmd /c powershell.exe.  
+		I might fix this later but for now it works.
+
+	.LINK
+	
+		https://github.com/HarmJ0y/Misc-PowerShell/blob/master/Invoke-PsExec.ps1
+		https://github.com/rapid7/metasploit-framework/blob/master/modules/exploits/windows/smb/psexec.rb
+		https://github.com/rapid7/metasploit-framework/blob/master/tools/psexec.rb
+#>
+	[CmdletBinding()]
+	param(
+		[Parameter(Mandatory = $True)] 
+		[String]
+		$ComputerName,
+
+		[Parameter(Mandatory = $True)]
+		[ValidateNotNullOrEmpty()]
+		[String]
+		$Command,
+
+		[String]
+		$ServiceName = "PSHuntSvc",
+
+		[System.Management.Automation.PSCredential]
+		$Credential
+	)
+
+	$Mod = New-InMemoryModule -ModuleName PSExec
+
+        $FunctionDefinitions = @(
+		    (func kernel32 GetLastError ([Int]) @()),
+            (func advapi32 OpenSCManagerA ([IntPtr]) @( [String], [String], [Int])  -SetLastError),	
+            (func advapi32 OpenServiceA ([IntPtr]) @([IntPtr], [String], [Int]) -SetLastError),
+            (func advapi32 CreateServiceA ([IntPtr]) @( [IntPtr], [String], [String], [Int], [Int], [Int], [Int], [String], [String], [Int], [Int], [Int], [Int]) -SetLastError),
+            (func advapi32 StartServiceA ([IntPtr]) @( [IntPtr], [Int], [String]) -SetLastError),
+            (func advapi32 DeleteService ([IntPtr]) @( [IntPtr] ) -SetLastError),
+			(func advapi32 LogonUserA ([Bool]) @( [String], [String], [String], [Int], [Int], [IntPtr].MakeByRefType() ) -SetLastError),
+			(func advapi32 ImpersonateLoggedOnUser ([Bool]) @( [IntPtr] ) -SetLastError),
+			(func advapi32 RevertToSelf ([Void]) @() -SetLastError),
+			(func advapi32 CloseServiceHandle ([Int]) @([IntPtr]) -SetLastError)
+        )
+
+        $Types = $FunctionDefinitions | Add-Win32Type -Module $Mod -Namespace 'Win32PSExec'
+        $Kernel32 = $Types['kernel32']
+		$Advapi32 = $Types['advapi32']
+ 
+
+	if ($Credential) {
+        Write-Verbose "Using Credentials"
+        if (!$Credential.GetNetworkCredential().Domain) {
+            # Go with non-domain name
+            $Domain = $ComputerName
+        } else {
+            $Domain = $Credential.GetNetworkCredential().Domain
+        }
 		
+		# Step 0 - LogonUser to create a user token with new username/pass, then force this thread to impersonate it.
+		# https://msdn.microsoft.com/en-us/library/windows/desktop/aa378184(v=vs.85).aspx
+		# LOGON32_LOGON_NEW_CREDENTIALS = 9        
+        $hToken = [IntPtr]::Zero
+		$val = $Advapi32::LogonUserA($cred.GetNetworkCredential().Username, $Domain, $Credential.GetNetworkCredential().Password, 9, 3, [ref]$hToken)
+		# breathe for a second
+		if ($val -AND ($val -ne 0)) {
+			# Impersonate user on current thread
+            Write-Verbose "Impersonating $($cred.GetNetworkCredential().Username), Domain: $Domain"
+			$val = $Advapi32::ImpersonateLoggedOnUser($hToken)
+			if (!$val) {
+				$err = $Kernel32::GetLastError()
+				Write-Warning "[!] User Impersonation failed, LastError: $err"
+				return
+			}
+		}
+		else {
+			# error codes - http://msdn.microsoft.com/en-us/library/windows/desktop/ms681381(v=vs.85).aspx
+			$err = $Kernel32::GetLastError()
+			Write-Warning "[!] User Impersonation failed, LastError: $err"
+			return
+		}	
+	}
+		
+	# Step 1 - OpenSCManager()
+	# 0xF003F = SC_MANAGER_ALL_ACCESS
+	#   http://msdn.microsoft.com/en-us/library/windows/desktop/ms685981(v=vs.85).aspx
+	Write-Verbose "[*] Opening service manager"
+	$ManagerHandle = $Advapi32::OpenSCManagerA("\\$ComputerName", "ServicesActive", 0xF003F)
+	Write-Verbose "[*] Service manager handle: $ManagerHandle"
+	if (!$ManagerHandle -OR ($ManagerHandle -eq 0)){
+		$err = $Kernel32::GetLastError()
+		Write-Warning "Failed to open Service Manager.  Error: $err"
+		#return
+	}
+	
+	# Step 2 - CreateService()
+	# 0xF003F = SC_MANAGER_ALL_ACCESS
+	# 0x10 = SERVICE_WIN32_OWN_PROCESS
+	# 0x3 = SERVICE_DEMAND_START
+	# 0x1 = SERVICE_ERROR_NORMAL
+	Write-Verbose "[*] Creating new service: '$ServiceName'"
+	$ServiceHandle = $Advapi32::CreateServiceA($ManagerHandle, $ServiceName, $ServiceName, 0xF003F, 0x10, 0x3, 0x1, $Command, $null, $null, $null, $null, $null)
+	Write-Verbose "[*] CreateServiceA Handle: $ServiceHandle"
+	if (!$ServiceHandle -OR ($ServiceHandle -eq 0)){
+		# error codes - http://msdn.microsoft.com/en-us/library/windows/desktop/ms681381(v=vs.85).aspx
+		$err = $Kernel32::GetLastError()
+		Write-Warning "[!] CreateService failed, LastError: $err"
+		#return
+	}
+	
+	# Step 3 - CloseServiceHandle() for the service handle
+	Write-Verbose "[*] Closing service handle"
+	$t = $Advapi32::CloseServiceHandle($ServiceHandle)
+	Start-Sleep -s 1
+	
+	# Step 4 - OpenService()
+	Write-Verbose "[*] Opening the service '$ServiceName'"	
+	$ServiceHandle = $Advapi32::OpenServiceA($ManagerHandle, $ServiceName, 0xF003F)
+	Write-Verbose "[*] OpenServiceA handle: $ServiceHandle"
+	if ($ServiceHandle -and ($ServiceHandle -ne 0)){
+		$err = $Kernel32::GetLastError()
+		Write-Warning "[!] OpenServiceA failed, LastError: $err"
+	}
+	
+	# Step 5 - StartService()
+	Write-Verbose "[*] Starting the service"
+	$val = $Advapi32::StartServiceA($ServiceHandle, $null, $null)
+	Start-Sleep -s 1
+	if ($val -eq 0){
+		$err = $Kernel32::GetLastError()
+		if ($err -eq 1053){
+			Write-Warning "[*] Command didn't respond to start"
+		} else {
+			Write-Warning "[!] StartServiceA failed, LastError: $err"
+		}
+	}
+	
+	# start cleanup
+	# Step 6 - DeleteService()
+	Write-Verbose "[*] Deleting the service '$ServiceName'"
+	$val = $Advapi32::DeleteService($ServiceHandle)
+			
+					
+	# Step 7 - CloseServiceHandle() for the service handle 
+	Write-Verbose "[*] Closing the service handle"
+	$val = $Advapi32::CloseServiceHandle($ServiceHandle)
+	Write-Debug "[*] Service handle closed off"
+
+	# final cleanup - close off the manager handle
+	Write-Verbose "[*] Closing the manager handle"
+	$t = $Advapi32::CloseServiceHandle($ManagerHandle)
+
+	$Advapi32::RevertToSelf()
+
+} # End Invoke-PSExec
+	
+
+

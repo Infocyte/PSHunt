@@ -29,9 +29,6 @@ Specifies whether the key is private (removes submission speed limit)
 $Process.SHA1 | Get-HuntVTStatus -APIKey 'cb83aa5543b1...'
 
 #>
-
-#region Analysis Cmdlets
-
 function Initialize-HuntReputation {
 <#
 .SYNOPSIS 
@@ -65,7 +62,7 @@ function Initialize-HuntReputation {
 		try { $CSV = import-csv $csvpath 
 		} catch { 
 			Write-Warning Could not get reputation from $Path
-			exit 
+			return 
 		}
 		$TotalItems = $CSV.count
 		$n = 1
@@ -128,37 +125,35 @@ function Initialize-HuntReputation {
 	) 
 		$NullHash = "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"
 		$start = Get-Date
-		$hashlist = New-Object Hashtable 2000000
+		$hashlist = New-Object Collections.Generic.HashSet[string]
 		try {
-			$reader = [System.IO.File]::OpenText($path)
+			$rawlist = [System.IO.File]::ReadAllLines($path)
 		} catch {
 			Write-Warning "Could not open $Path"
+			return
 		}
 
 		$n = 0
-		$line = $reader.readline()
-		if ( ($line -match "^[0-9a-zA-Z]{40}") -OR ($line -match "^[0-9a-zA-Z]{32}") -OR ($line -match "^[0-9a-zA-Z]{64}")) {
-			$hashlist.Add($line, $true)
-			$n += 1
-		} else {
+		$line = $rawlist[0]
+		if ( $line -notmatch "^[0-9a-zA-Z]{32}$|^[0-9a-zA-Z]{40}|^[0-9a-zA-Z]{64}") {
 			Write-Warning "File is not a list of hashes, $line is not a hash";
-			exit 
+			return 
 		}
 		
-		while ($line = $reader.ReadLine()) {
-			if ( ($line -eq $null) -OR ($line -eq $NullHash) ) { continue }	 
-			if ( -not $hashlist.ContainsKey($line) ) {
-				$hashlist.Add($line, $null)
+		Foreach ($line in $rawlist) {
+			if ( ( $line -match "^[0-9a-zA-Z]{32}$|^[0-9a-zA-Z]{40}|^[0-9a-zA-Z]{64}") -AND ($line -eq $null) -AND ($line -eq $NullHash) ) {
+				$null = $hashlist.Add($line)
 			}
 			$n += 1
 			if ($n%1000 -eq 0) {
 				Write-Progress -Activity "Reading from NIST" -percentcomplete "-1" -status "$n hashes added to Hashtable"
 			}
 		}
+		
 		$timetaken = ((Get-Date) - $start).totalseconds
 		Write-Progress -Activity "Reading from NIST" -percentcomplete "-1" -status "$n hashes added to Hashtable in $timetaken" -Completed
 		Write-Verbose "$n hashes added to Hashtable in $timetaken seconds"
-		$reader.Close()
+
 		return $hashlist
 	}
 
@@ -171,7 +166,7 @@ function Initialize-HuntReputation {
 		try { $CSV = import-csv $csvpath 
 		} catch { 
 			Write-Warning Could not get reputation from $Path
-			exit 
+			return 
 		}
 		$TotalItems = $CSV.count
 		$n = 1
@@ -226,12 +221,12 @@ function Initialize-HuntReputation {
 function Update-HuntObject {
 <#
 .SYNOPSIS 	
-	Used to analyze output from the psHunt Survey (survey.ps1) HostObject.
+	Used to analyze output from the PSHunt Survey (survey.ps1) HostObject.
 
 	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
 	License: Apache License 2.0
 	Required Dependencies: 	SurveyAnalysis.ps1
-							VirusTotal.psm1
+							Posh-VirusTotal
 	Optional Dependencies: 	None
 
 .DESCRIPTION 
@@ -239,14 +234,14 @@ function Update-HuntObject {
 .PARAMETER HostObjects
 	Path to HostObject (Array)
 
-.PARAMETER Baseline
-	Output a CSV of the HostObject for inclusion in whitelist.  Default = False
+.PARAMETER VirusTotal
+	After processing, Update-HuntObject will call Get-HuntVTStatus on any unknowns that local reputation did not have information on.
 
 .PARAMETER Reprocess
 	Reprocess an already processed hostobject. Default = False
 				
 .EXAMPLE
-	PS > gci .\DATADIR -recurse | Update-HostObject
+	PS > gci .\DATADIR -recurse | Update-HuntObject
 	
 #>
 [CmdletBinding()]  
@@ -275,21 +270,8 @@ Param(
 
 		#region Functions:
 
-		function _Merge-HashTable($htold, $htnew) {
-			$keys = $htold.getenumerator() | foreach-object {$_.key}
-			$keys | foreach-object {
-				$key = $_
-				if ($htnew.containskey($key))
-				{
-					$htold.remove($key)
-				}
-			}
-			$htnew = $htold + $htnew
-			return $htnew
-		}
-
 		# Check Files against hash reputation
-		function _Compare-Hash ($InputList) {
+		function Compare-Hash ($InputList) {
 			foreach ($item in $InputList) {
 				if ($item) {
 					$item | Add-Member -type NoteProperty -Name Status -Value "Unknown" -Force
@@ -315,7 +297,7 @@ Param(
 		}
 		
 		# Process Connections against IP Reputation
-		function _Compare-Connection ($Netstat) {
+		function Compare-Connection ($Netstat) {
 			foreach ($cnx in $Netstat) { 
 				# Assign process's check
 				$cnx | Add-Member -type NoteProperty -name Status -value "Unknown" -Force
@@ -344,11 +326,11 @@ Param(
 		$Unknowns = @{}
 		
 		$n = 0
-		$total = $HostObjects.count
-		Write-Verbose "Test: $total"
 	}
 	PROCESS {
 		$total = $HostObjects.count
+		Write-Verbose "Test: $total"
+				
 		foreach ($PathName in $HostObjects) {
 			<#
 			# Check inputs:
@@ -379,7 +361,7 @@ Param(
 
 				# process ProcessList
 				Write-Verbose "Processing ProcessList..."
-				$null = _Compare-Hash $HostObject.ProcessList
+				$null = Compare-Hash $HostObject.ProcessList
 				
 				Foreach ($item in $HostObject.ProcessList) {
 					# Items that cannot be checked but should be there (Idle Process, System, etc):
@@ -398,19 +380,19 @@ Param(
 				
 				# process ModuleList
 				Write-Verbose "Processing loaded DLLs..." 
-				$null = _Compare-Hash $HostObject.ModuleList
+				$null = Compare-Hash $HostObject.ModuleList
 				
 				# process DriverList
 				Write-Verbose "Processing Drivers..."
-				$null = _Compare-Hash $HostObject.DriverList
+				$null = Compare-Hash $HostObject.DriverList
 				
 				# Process Autoruns
 				Write-Verbose "Processing Autoruns..."
-				$null = _Compare-Hash $HostObject.Autoruns
+				$null = Compare-Hash $HostObject.Autoruns
 				
 				# Process NetStat
 				Write-Verbose "Processing connections..."
-				$null = _Compare-Connection $HostObject.NetStat
+				$null = Compare-Connection $HostObject.NetStat
  
 				$HostObject.Processed = $true	
 				$HostObject.DateProcessed = Get-Date
@@ -434,11 +416,16 @@ Param(
 		}
 	}
 	END {
+	
 		if ($VirusTotal) { 
+			Write-Verbose "Processing Complete. Querying VirusTotal with $($Unknowns.Count) unknown hashes"
 			$unknowns.Keys | Get-HuntVTStatus
+			Write-Verbose "Reprocessing HuntObject with new VirusTotal data"
+			Update-HuntObject -HostObjects $HostObjects -Reprocess
+		} else {
+			write-verbose "Processing Complete. $($Unknown.count) hashes and IPs could not be identified. Check \$Global:PSHuntUnknowns for a list of remaining unknowns."
+			$Global:PSHuntUnknowns = $Unknowns.Keys		
 		}
-		write-verbose "Processing Complete"
-		return $Unknowns.Keys
 
 	}
 }
@@ -485,10 +472,6 @@ function Get-HuntVTStatus {
 		[ValidateNotNullorEmpty()]
 		[string]$FileReputationPath="$PSScriptRoot\..\ReputationData\Files.csv",
 		
-		[Parameter(Mandatory=$true)]
-		[ValidateNotNullorEmpty()]
-		[String]$APIKey,
-		
 		[Switch]$PrivateKey
 	)
 
@@ -509,7 +492,9 @@ function Get-HuntVTStatus {
 		$StatusSuspicious = "Suspicious"
 		$StatusBad = "Bad"
 		if ($FileReputationPath -match "^\\..\\ReputationData") {
-			$FileReputationPath = "$pwd\ReputationData\Files.csv"
+			$FileReputationPath = Resolve-Path "$pwd\ReputationData\Files.csv" | select -ExpandProperty Path
+		} else {
+			$FileReputationPath = Resolve-Path $FileReputationPath | select -ExpandProperty Path
 		}
 		
 		$VTCache = Import-CSV $FileReputationPath
@@ -526,13 +511,13 @@ function Get-HuntVTStatus {
 				continue
 			}
 			Switch -regex ($hash) {
-				"^[0-9a-zA-Z]{32}" {
+				"^[0-9a-zA-Z]{32}$" {
 					$HashType = "MD5"
 					}
-				"^[0-9a-zA-Z]{40}" {
+				"^[0-9a-zA-Z]{40}$" {
 					$HashType = "SHA1"
 					}
-				"^[0-9a-zA-Z]{64}" {
+				"^[0-9a-zA-Z]{64}$" {
 					$HashType = "SHA256"
 					}
 				Default { 
@@ -548,9 +533,9 @@ function Get-HuntVTStatus {
 				continue
 			} else {
 				Write-Verbose "($n): Requesting VT Report for $Hash"
-				$Report = Get-VTReport -VTApiKey $APIKey -hash $Hash
-				if (!$Report) { 
-					Write-Warning "($n): ERROR - Could not get report for hash $hash"
+				$Report = Get-VTReport -Hash $Hash
+				if ( (!$Report) -OR ($Report -match "ERROR" ) ) { 
+					Write-Warning "($n): ERROR - Could not get report for hash $hash ($Report)"
 					continue 
 				}			
 			}
@@ -917,15 +902,4 @@ Param(
 		return $GroupedObject
 	}
 }
-
-#endregion
-
-#region Internal  Helper Functions
-
-#endregion
-
-
-# Test
-
-#gci C:\Users\Chris\Documents\GitHub\PSHunt\Surveys -recurse -Include *.xml | Group-HuntObjects -debug -verbose
 

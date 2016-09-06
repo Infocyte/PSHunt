@@ -299,10 +299,9 @@ function Get-Hashes {
 	Return is formated as uppercase HEX without byte group delimiters.
 	
 .NOTES
-	Name:			Get-Hash
-	Author: 		Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
-	License: 		Apache License 2.0
-	Version:		1.0
+	Project: PSHunt
+	Author: Chris Gerritz (Github @singlethreaded) (Twitter @gerritzc)
+	License: Apache License 2.0
 	Required Dependencies: 	None
 	Optional Dependencies: 	None
 	

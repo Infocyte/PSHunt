@@ -202,6 +202,7 @@ function Invoke-HuntScanner {
 		} # end of Get-Result
 	  
 		$StartTime = Get-Date
+		$AllTargets = @()
 	}
 
 	PROCESS {
@@ -211,9 +212,10 @@ function Invoke-HuntScanner {
 		} else {
 			$Targets = $ComputerName	
 		}
-
+		$AllTargets += $Targets
+		
 		Write-Verbose "Scanning $($ComputerName.Count) hosts using $ThrottleLimit threads"
-		Write-Verbose "$ScriptBlock"
+		Write-Verbose "$ScanPath"
 		
 		foreach ($Computer in $Targets) {
 			
@@ -257,7 +259,7 @@ function Invoke-HuntScanner {
 		$RunspacePool.Dispose()
 		
 		# Sort and write results to pipeline
-		$ComputerName | Sort-Object -Property @{ 
+		$AllTargets | Sort-Object -Property @{ 
 			# Sort results by ComputerName
 			Expression ={ 
 				if ($_.Name -match "\A$IPv4Regex\z") { 
@@ -276,4 +278,125 @@ function Invoke-HuntScanner {
 		[System.GC]::Collect()
 	}
 }
+
+
+function New-HuntScan {
+	# Generate a HuntScan template file
+	
+$BeginScript = @"
+<#
+.SYNOPSIS
+
+	<Scan Template - Put a Short Description Here>
+	
+	Scan is formated to run multi-threaded with Invoke-HuntScanner.
+
+	Project: PSHunt
+	Author: Chris Gerritz (Twitter @gerritzc Github @singlethreaded)
+	Company: Infocyte, Inc.
+	License: Apache license 2.0
+	Required Dependencies: Invoke-HuntScanner
+	Optional Dependencies: None
+	
+.NOTES
+
+	Debug without Invoke-HuntScanner using the debug parameter.  Like this:
+	
+	PS > $Cred = Get-Credential galactica\adama
+	PS > .\SB_OSInfo.ps1 -Computer cic.galactica.int -Credential $Cred -verbose -debug
+
+.PARAMETER ComputerName
+	IP or DNS/NetBIOS name of remote system
+	
+.PARAMETER Credential
+	Credential of remote system
+	
+.EXAMPLE		
+	PS C:\> $ScanPath = "C:\Users\Chris\Documents\GitHub\PSHunt\Scanners\Scan_RegistryValue.ps1"
+	PS C:\> $Targets = "cic.galactica.int", "localhost", "Win2k8R2"
+	PS C:\> $Credential = Get-Credential galactica\adama
+	
+	PS C:\> Invoke-HuntScanner -ComputerName $Targets -ScanPath $ScanPath -ArgumentList $ScanArgs -Credential $Credential -verbose
+	
+#>
+[CmdletBinding()]
+param(
+	[int] $ID=0,
+	[string] $Computer,
+	[System.Management.Automation.PSCredential] $Credential
+)
+
+<#
+	HuntScanner Variables in each thread from Invoke-HuntScanner:
+	$RunspaceTimers
+	$ScanData
+#> 
+
+# Test
+if ($PSBoundParameters['Debug']) {
+	# For debugging the scriptblock independant of Invoke-HuntScanner
+	$ScanData = [HashTable]::Synchronized(@{})
+} else {
+	# Get the start time.
+	$RunspaceTimers.$ID = Get-Date
+}
+
+# Add computer to ScanData Object
+if (-not $ScanData.ContainsKey($Computer)) {
+	$ScanData[$Computer] = New-Object -TypeName PSObject -Property @{ 
+		ComputerName = $Computer
+		Errors = @()
+	}
+}
+
+
+#########################################
+# Start Scan Function 						
+# Define script here
+# Inputs: 	$ComputerName
+#			$Credential
+#			+ any user defined inputs ($Args)
+# Outputs: 	Add output to $ScanData[$Computer] as a new member (NoteProperty) rather than pipeline:
+# 			Example: $ScanData[$Computer] | Add-Member -MemberType NoteProperty -Name 'OS' -Value $OS
+#########################################
+
+# Uniquely define a new GUID for every defined scan
+"@
+	
+
+$NewSigline = '$ScanSignature = "' + "$(New-GUID)" + '"'
+
+$EndScript = @"
+
+
+$ScanData[$Computer] | Add-Member -MemberType NoteProperty -Name 'Test' -Value $True
+
+#########################################
+# End Scan Function 							
+#########################################
+
+if ($PSBoundParameters['Debug']) {
+	# Return ScanData if Debuging script outside Invoke-HuntScanner
+	return $ScanData[$computer]
+}
+"@
+
+$Script = $BeginScript + $NewSigLine + $EndScript
+$Script | Out-File Scan_Template.ps1
+Write-Verbose "Exported scan template to $pwd\Scan_Template.ps1"
+Write-Verbose "Now define your scan and import it using Import-HuntScan"
+}
+
+function Add-HuntScan {
+
+}
+
+function Remove-HuntScan {
+
+}
+
+function Get-HuntScan {
+
+}
+
 
