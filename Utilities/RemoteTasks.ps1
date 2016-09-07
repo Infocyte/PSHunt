@@ -73,7 +73,7 @@ function Invoke-HuntSurvey {
 						HelpMessage='Must be a valid .ps1')]
 			[ValidateScript({ (Test-Path $_) -AND ($_ -like "*.ps1") })]	
 			[String]
-			$ScriptPath = "$PSScriptRoot\..\Surveys\Survey.ps1",
+			$SurveyPath = "$PSScriptRoot\..\Surveys\Survey.ps1",
 
 			[Parameter(	Mandatory=$False)]
 			[String]
@@ -100,7 +100,6 @@ function Invoke-HuntSurvey {
 		)
 
 	BEGIN {
-		$ErrorActionPreference = "Stop"
 		
 		function Write-Log {
 			Param(	
@@ -120,14 +119,17 @@ function Invoke-HuntSurvey {
 
 		
 		# Generate Random filename (random but will start with 'ps' and end in .ps1)
-		[string] $RemoteFilename = 'ps' + [System.Guid]::NewGuid().ToString().Substring(2) + $ScriptPath.Substring($ScriptPath.LastIndexOf('.'))
+		[string] $RemoteFilename = 'ps' + [System.Guid]::NewGuid().ToString().Substring(2) + $SurveyPath.Substring($SurveyPath.LastIndexOf('.'))
 		
 		$date = get-date -uformat "%Y%m%d"	
 		
-		# Prep log for new scan
-		
-		if (!(Test-Path $PSScriptRoot\..\log)) { mkdir $PSScriptRoot\..\log }
+		# Prep log for new scan		
+		if (-NOT (Test-Path $PSScriptRoot\..\log)) { $null = New-Item $PSScriptRoot\..\log -Force }
 		$LogPath = "$(Resolve-Path $PSScriptRoot\..\log\)\HuntLog.log"
+		
+		# Create Data Directories
+		if (-NOT (Test-Path $DATADIR)) { $null = New-Item $DATADIR -Force}
+		if (-NOT (Test-Path "$DATADIR\$date")) { $null = New-Item "$DATADIR\$date" -Force}
 		
 		$n = 0
 	}
@@ -136,7 +138,7 @@ function Invoke-HuntSurvey {
 
         $HostCount = $ComputerName.count
         $datetime = (Get-Date).ToString()
-        Write-Verbose "STARTING NEW SURVEY ($HostCount systems) - $datetime - Using Task $ScriptPath via Execution Type $ExecutionType"
+        Write-Verbose "STARTING NEW SURVEY ($HostCount systems) - $datetime - Using Task $SurveyPath via Execution Type $ExecutionType"
 
 		foreach ($Target in $ComputerName) {
 			if ( ($Target -eq $null) -OR ($Target -eq "") ) { continue }
@@ -145,7 +147,7 @@ function Invoke-HuntSurvey {
 			
 			#  Making local output directory
 			$TargetDATADIR = "$DATADIR\$date\$Target"
-			if (!(Test-Path $TargetDATADIR)) { $null = mkdir $TargetDATADIR }
+			if (-NOT (Test-Path $TargetDATADIR)) { $null = New-Item $TargetDATADIR }
 			
 			# Setting remote folder paths and UNC path
 			$RemotePath = 'C:\Windows\temp'
@@ -153,8 +155,8 @@ function Invoke-HuntSurvey {
 			$RemoteUNCPath = "\\$Target\C$\Windows\temp"
 			
 			# Kick this thing off
-			$Msg = "Executing $ScriptPath on $Target via $ExecutionType as $RemoteUNCPath\$RemoteFilename"
-            Write-Log $Target $LogPath "Executing $ScriptPath on $Target via $ExecutionType as $RemoteUNCPath\$RemoteFilename." $n
+			$Msg = "Executing $SurveyPath on $Target via $ExecutionType as $RemoteUNCPath\$RemoteFilename"
+            Write-Log $Target $LogPath "Executing $SurveyPath on $Target via $ExecutionType as $RemoteUNCPath\$RemoteFilename." $n
 
 			Write-Progress -activity "Deploying Surveys" -status "Percent Complete: " -PercentComplete (($n / $HostCount)  * 100) -CurrentOperation "($n of $HostCount): Surveying $Target"
 
@@ -241,16 +243,16 @@ function Invoke-HuntSurvey {
 			
 			try {
 				# Sending scripts to target	using SMB transport for WMI and Schtasks execution
-				Write-Verbose "Copying $ScriptPath to: $RemoteUNCPath\$RemoteFilename"
+				Write-Verbose "Copying $SurveyPath to: $RemoteUNCPath\$RemoteFilename"
 				$RemoteDisk = New-PSDrive -Name "RD" -PSProvider "FileSystem" -Root $RemoteUNCPath\ -Credential $credential
-				$null = Copy-Item -Path $ScriptPath -Destination RD:\$RemoteFilename -Force
+				$null = Copy-Item -Path $SurveyPath -Destination RD:\$RemoteFilename -Force
 				
 			} catch [System.UnauthorizedAccessException] {
 				# Access Denied
-				Write-Log $Target $LogPath "ERROR: Unauthorized Access on transfer of $ScriptPath to $RemoteUNCPath\$RemoteFilename." $n
+				Write-Log $Target $LogPath "ERROR: Unauthorized Access on transfer of $SurveyPath to $RemoteUNCPath\$RemoteFilename." $n
 				continue
 			} catch {
-				Write-Log $Target $LogPath "ERROR: Failed to transfer $ScriptPath to $RemoteUNCPath\$RemoteFilename.  Error Message: $($_.Exception.Message)" $n
+				Write-Log $Target $LogPath "ERROR: Failed to transfer $SurveyPath to $RemoteUNCPath\$RemoteFilename.  Error Message: $($_.Exception.Message)" $n
 				continue
 			} finally {
 				Remove-PSDrive -name RD -PSProvider FileSystem -ea 0
@@ -301,7 +303,7 @@ function Invoke-HuntSurvey {
 		# End scan
 		$datetime = (Get-Date).ToString()
         Write-Progress -activity "Deploying Surveys" -Complete
-        Write-Verbose "SURVEY COMPLETE ($HostCount systems) - $datetime - Using Task $ScriptPath via Execution Type $ExecutionType"
+        Write-Verbose "SURVEY COMPLETE ($HostCount systems) - $datetime - Using Task $SurveyPath via Execution Type $ExecutionType"
 	}
 }
 
@@ -428,10 +430,13 @@ function Get-HuntSurveyResults {
 		$date = get-date -uformat "%Y%m%d"	
 		$ResultsFileName = Split-Path $RemotePath -Leaf
 		
-		# Prep log
-
-		if (!(Test-Path $PSScriptRoot\..\log)) { mkdir $PSScriptRoot\..\log }
+		# Prep log		
+		if (-NOT (Test-Path $PSScriptRoot\..\log)) { $null = New-Item $PSScriptRoot\..\log -Force }
 		$LogPath = "$(Resolve-Path $PSScriptRoot\..\log\)\HuntLog.log"
+		
+		# Create Data Directories if not already made
+		if (-NOT (Test-Path $DATADIR)) { $null = New-Item $DATADIR -Force}
+		if (-NOT (Test-Path "$DATADIR\$date")) { $null = New-Item "$DATADIR\$date" -Force}
 	
 		$n = 0
 	}
