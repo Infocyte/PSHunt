@@ -73,7 +73,8 @@
         [String]
         $IpRange,
 		
-		[Parameter(	Mandatory = $false)]
+		[Parameter(	Mandatory = $false,
+					ValueFromPipeline=$true)]
 		[Alias("CustomList")]
         [String[]]
         $ComputerName,
@@ -85,6 +86,10 @@
 		[Parameter(Mandatory = $false)]
         [String[]]
         $OUs,
+		
+		[Parameter(Mandatory = $false)]
+		[Switch]
+		$DiscoverOS,
 		
 		[Parameter(	Mandatory=$false)]
         [int]$ThrottleLimit=64,
@@ -161,6 +166,7 @@
 			Write-Verbose "Domain Query complete.  $($Targets.Count) computer objects were registered in Active Directory"
 		}
 		
+		$TargetCount = 0
 	}
 	
 	PROCESS {
@@ -232,17 +238,22 @@
 				PsExec = $false
 				PSRemoting = $false
 			}
-			if ($hostscan.TCP135) {
+			if ($hostscan.Ports.TCP135) {
 				$ExecutionMethods.WMI = $True
 			}
-			if (($hostscan.TCP139) -OR ($hostscan.TCP135)) {
+			if (($hostscan.Ports.TCP139) -OR ($hostscan.Ports.TCP135)) {
 				$ExecutionMethods.Schtasks = $True
 				$ExecutionMethods.PsExec = $True
 			}
-			if ($hostscan.TCP5985) {
+			if ($hostscan.Ports.TCP5985) {
 				$ExecutionMethods.PSRemoting = $True
 			}
 			$hostscan | Add-Member -MemberType NoteProperty -Name 'ExecutionMethods' -Value $ExecutionMethods
+			
+			if ($a[0].ExecutionMethods.PSObject.Properties | where { $_.Value -eq $true }) {
+				# If accessible, add to accessible host count
+				$TargetCount += 1
+			}
 			
 			# Operating System and any Domain Attributes we collected
 			$hostscan | Add-Member -MemberType NoteProperty -Name 'OperatingSystem' -Value $Null 
@@ -261,18 +272,23 @@
 			}
 			
 			# Discover OS
-			if ($hostscan.OperatingSystem -eq $null) {
+			if ( ($DiscoverOS) -AND ($hostscan.OperatingSystem -eq $null) ) {
 				# Discover OS
-				
-				
+				if ($ExecutionMethods.WMI) {
+					try {
+						$hostscan.OperatingSystem = Get-WmiObject -Computer $hostscan.ComputerName -Class Win32_OperatingSystem -ErrorAction Stop | Select -ExpandProperty Caption
+					} catch {
+						Write-Warning "Could not reach $($hostscan.ComputerName) on WMI. Error: $_"
+					}
+				} 
 			}
+			
 		}
 		
 		Write-Verbose "Enumeration Complete.  $TargetCount of $($Targets.Count) hosts are accessible"
 		$PortScanResults
 		
 	}
-	
 }
 
 
@@ -462,37 +478,39 @@ function Invoke-HuntPortScan {
 				$PortData[$Computer] | Add-Member -MemberType NoteProperty -Name 'IP' -Value $null
 				$PortData[$Computer] | Add-Member -MemberType NoteProperty -Name 'IPAddressList' -Value $null
 				
-				if ($Computer -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$") {
+				if ( ($Computer -match "^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$") -AND ($Computer -ne "127.0.0.1") ) {
 					# $Computer is an IP - Do reverse lookup for hostname
 					Write-Verbose "${Computer}: Resolving DNS for $Computer via Reverse Lookup"
 					$PortData[$Computer].IP = $Computer
 					try {
 						$resolved = [System.Net.Dns]::GetHostEntry($Computer)
-						$PortData[$Computer].DNS = $resolved.HostName
-						$PortData[$Computer].IPAddressList= $resolved.AddressList.IPAddressToString
 					} catch {
 						# $Status = "WARNING: Could not resolve Hostname from IP"
-						Write-Verbose "${Computer}: WARNING: Could not resolve Hostname from IP"
+						Write-Warning "${Computer}: WARNING: Could not resolve Hostname from IP"
 					}
-				} elseif ($Computer -ne $null) {
-					# $Computer is DNS name - Resolve IP from hostname
+					$PortData[$Computer].DNS = $resolved.HostName
+					$PortData[$Computer].IPAddressList= $resolved.AddressList.IPAddressToString
+					
+				} 
+				elseif ($Computer -ne $null) {
+					# $Computer is hostname - Resolve IP from hostname
 					Write-Verbose "${Computer}: Resolving IP for $Computer via DNS Lookup"
-					$PortData[$Computer].DNS = $Computer
 					try {
 						$resolved = [System.Net.Dns]::GetHostEntry($Computer)
-						$PortData[$Computer].IPAddressList = $resolved.AddressList.IPAddressToString
-						if ($resolved.AddressList.count -gt 1) {
-							# Add first IPv4 address to IPAddress field
-							$resolved.AddressList | where { $_.AddressFamily -eq "InterNetwork" } | foreach-Object { 
-								$PortData[$Computer].IP = $_.IPAddressToString
-								break 
-							}
-						} else {
-							$PortData[$Computer].IP = $resolved.AddressList.IPAddressToString
-						}
 					} catch {
 						# $Status = "FAILURE: Could not resolve IP from Hostname"
-						Write-Verbose "${Computer}: FAILURE: Could not resolve IP from Hostname"
+						Write-Warning "${Computer}: FAILURE: Could not resolve IP from Hostname"
+					}
+					$PortData[$Computer].DNS = $resolved.HostName
+					$PortData[$Computer].IPAddressList = $resolved.AddressList.IPAddressToString
+					if ($resolved.AddressList.count -gt 1) {
+						# Add first IPv4 address to IPAddress field
+						$resolved.AddressList | where { $_.AddressFamily -eq "InterNetwork" } | foreach-Object { 
+							$PortData[$Computer].IP = $_.IPAddressToString
+							break 
+						}
+					} else {
+						$PortData[$Computer].IP = $resolved.AddressList.IPAddressToString
 					}
 				}
 				Write-Verbose "${Computer}: DNS resolution Complete on $Computer RESULTS: $($PortData[$Computer].DNS) ($($PortData[$Computer].IP)) # of IPs: $($PortData[$Computer].IPAddressList.Count)"
@@ -609,13 +627,13 @@ function Invoke-HuntPortScan {
 		foreach ($Computer in $Targets) {
 			
 			# Starting DNS thread if switch was specified.
-			if ($PSBoundParameters['Dns']) {
+			if ($Dns) {
 				++$RunspaceCounter
 				$psCMD = [System.Management.Automation.PowerShell]::Create().AddScript($ScriptBlock)
 				[void] $psCMD.AddParameter('ID', $RunspaceCounter)
 				[void] $psCMD.AddParameter('Computer', $Computer)
 				[void] $PSCMD.AddParameter('Port', $Null)
-				[void] $PSCMD.AddParameter('Dns', $Dns)
+				[void] $PSCMD.AddParameter('Dns', $true)
 				[void] $PSCMD.AddParameter('ICMP', $null)
 				[void] $psCMD.AddParameter('Verbose', $VerbosePreference)
 				$psCMD.RunspacePool = $RunspacePool
